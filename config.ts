@@ -19,6 +19,8 @@ export const config = {
   styleRoots: [join(GRAIN, 'components'), join(HERE, 'frontend', 'components'), join(GRAIN, 'ai')],
 
   pagesDir: join(HERE, 'frontend', 'pages'),
+  /** Local document store root (used until a Drive account is connected). */
+  docsDir: join(HERE, 'data', 'documents'),
   plansDir: join(HERE, 'plans'),
   toursDir: join(HERE, 'tours'),
   contentDir: join(HERE, 'content'),

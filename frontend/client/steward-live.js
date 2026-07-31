@@ -159,7 +159,10 @@ async function submitForm(form) {
 
 document.addEventListener('submit', (e) => {
   const form = e.target;
-  if (form instanceof HTMLFormElement && form.classList.contains('fb') && form.dataset.action !== 'customer.search') {
+  // A form with a real `action` posts to that URL itself (uploads carry bytes,
+  // which the JSON door doesn't take) — leave it to the browser.
+  if (form instanceof HTMLFormElement && form.classList.contains('fb')
+      && !form.getAttribute('action') && form.dataset.action !== 'customer.search') {
     e.preventDefault();
     submitForm(form);
   }

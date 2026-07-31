@@ -2,7 +2,7 @@
 // FormBuilder lives here: one schema-driven renderer with create/edit/view modes.
 
 import type {
-  AuditEntry, Client, Customer, Ticket, ProgressEntry,
+  AuditEntry, Client, Customer, DocumentRef, Ticket, ProgressEntry,
 } from '../domain/types.ts';
 import { TICKET_STATUSES } from '../domain/types.ts';
 
@@ -233,6 +233,42 @@ export function progressItem(e: ProgressEntry): string {
 export function progressList(t: Ticket): string {
   const items = t.progressLog.map(progressItem).join('') || '<li class="muted">No entries yet.</li>';
   return `<ul class="progress" data-surface="ticket-progress:${esc(t.id)}">${items}</ul>`;
+}
+
+// ---- documents -------------------------------------------------------------
+
+/** Human file size. Bytes are exact; anything larger is rounded for reading. */
+export function fileSize(bytes: number): string {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = bytes / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+/** Which files the browser can show inline, vs which it can only hand over. */
+export function previewKind(mimeType: string): 'image' | 'pdf' | 'text' | 'none' {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (mimeType.startsWith('text/') || mimeType === 'application/json') return 'text';
+  return 'none';
+}
+
+/** A document as a chip, for the Documents section of a record panel. */
+export function documentChip(d: DocumentRef): string {
+  return (
+    `<a class="chip" href="/files/${esc(d.id)}" data-href="/files/${esc(d.id)}" ` +
+    `data-surface="document:${esc(d.id)}">` +
+    `<span class="chip__badge" data-source="${esc(d.source)}">${esc(d.source)}</span>` +
+    `${esc(d.name)}</a>`
+  );
+}
+
+export function documentChips(docs: DocumentRef[], surface: string): string {
+  const items = docs.map(documentChip).join('')
+    || '<p class="muted">No documents yet.</p>';
+  return `<div class="chips" data-surface="${esc(surface)}">${items}</div>`;
 }
 
 // ---- audit trail -----------------------------------------------------------

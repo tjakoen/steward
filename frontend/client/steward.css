@@ -268,6 +268,38 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 .chip:hover { border-color: var(--color-accent, #1C1B17); }
 
+/* ---- Documents ----------------------------------------------------------- */
+.chip__badge {
+  display: inline-block; margin-right: var(--space-2, .5rem); padding: 0 5px;
+  border-radius: 2px; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--color-line, rgba(28,27,23,.14)); color: var(--color-muted, #6E6C64);
+}
+/* A generated file is STEWARD's own output — mark it apart from what was uploaded. */
+[data-source="generated"] { border-color: var(--color-accent, #1C1B17); color: var(--color-accent, #1C1B17); }
+
+.attach { margin-top: var(--space-3, .75rem); }
+.attach input[type="file"] { font-size: var(--text-xs, .8125rem); }
+form.inline { display: inline; }
+button.linkish {
+  border: none; background: none; padding: 0; font: inherit;
+  font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+  text-decoration: underline; cursor: pointer;
+}
+button.linkish:hover { background: none; color: var(--color-fg, #1C1B17); }
+
+.preview {
+  margin: var(--space-4, 1rem) 0; border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  border-radius: var(--radius-md, 6px); overflow: hidden; background: var(--color-bg, #E2E0D8);
+}
+.preview img { display: block; max-width: 100%; height: auto; }
+.preview--pdf { height: min(60vh, 520px); }
+.preview--pdf iframe { width: 100%; height: 100%; border: 0; }
+.preview--text {
+  padding: var(--space-3, .75rem); margin: var(--space-4, 1rem) 0; max-height: 420px; overflow: auto;
+  font-family: var(--font-mono, monospace); font-size: var(--text-xs, .8125rem);
+  white-space: pre-wrap; word-break: break-word;
+}
+
 /* ---- Audit trail (the recorded history of every mutation) ---------------- */
 .audit { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-1, .25rem); }
 .audit__row {

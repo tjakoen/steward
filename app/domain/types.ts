@@ -81,6 +81,35 @@ export interface Ticket {
 }
 
 export type AuditEntity = 'client' | 'customer' | 'ticket';
+
+/** How a document came to exist. */
+export type DocumentSource =
+  | 'generated' // produced by STEWARD (e.g. a ticket PDF)
+  | 'upload' // a file the operator attached
+  | 'link'; // a file that lives elsewhere; STEWARD only points at it
+
+/** Where the bytes actually are. Swappable behind the DocumentStore port. */
+export type DocumentStorage = 'local' | 'drive';
+
+/**
+ * A file belonging to a record. `entity` + `entityId` is what makes a document
+ * more than a loose file: a generated PDF is *the document of ticket X*, and
+ * carries that lineage everywhere it is shown.
+ */
+export interface DocumentRef {
+  id: string;
+  entity: AuditEntity;
+  entityId: string;
+  name: string;
+  mimeType: string;
+  size: number; // bytes; 0 for links (the bytes aren't ours)
+  source: DocumentSource;
+  storage: DocumentStorage;
+  storageId: string; // path on disk, or the Drive file id
+  webViewLink: string; // '' unless the file lives somewhere with a URL
+  createdAt: string; // ISO 8601
+  createdBy: string; // actor — same vocabulary as audit rows
+}
 export type AuditAction = 'create' | 'update' | 'archive' | 'delete';
 
 /** Append-only history of every mutation. */

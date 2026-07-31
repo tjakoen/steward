@@ -2,6 +2,7 @@
 // the single /intent door, the /stream SSE hub, and mounts MILL/PROOF/CRUMB.
 
 import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 // BATCH
@@ -32,10 +33,12 @@ import { seedDemo } from './app/seed/demo.ts';
 import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
 import {
   esc, renderForm, customerSchema, clientSchema, customerRow, clientRow, personsLabel,
-  ticketSchema, ticketEditSchema, renderBoard, progressList, auditList, auditItem,
+  ticketSchema, ticketEditSchema, renderBoard, progressList, auditList, auditItem, auditTime,
+  documentChips, fileSize, previewKind,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
-import type { Client, Customer, Ticket } from './app/domain/types.ts';
+import type { AuditEntity, Client, Customer, DocumentRef, Ticket } from './app/domain/types.ts';
+import { LocalDocumentStore, mimeFor, type DocumentStore } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
 
@@ -43,7 +46,11 @@ const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
 
 // ---- storage + services ----
 db(); // ensure schema exists
-const services = makeServices(sqliteRepositories());
+// Documents default to local disk: the app must work before (and without) a
+// Google account. A connected Drive swaps this out behind the same port (0006).
+await mkdir(config.docsDir, { recursive: true });
+const documentStore: DocumentStore = new LocalDocumentStore(config.docsDir);
+const services = makeServices(sqliteRepositories(), documentStore);
 
 // ---- GRAIN door ----
 const stream: Stream = createStream();
@@ -102,6 +109,7 @@ const NAV_WORK: NavItem[] = [
   { label: 'Tickets', href: '/tickets', ico: '◧', count: () => services.repos.tickets.list().length },
 ];
 const NAV_ACTIVITY: NavItem[] = [
+  { label: 'Files', href: '/files', ico: '❐', count: () => services.listDocuments().length },
   { label: 'Activity', href: '/activity', ico: '↻' },
 ];
 const NAV_FOOT: NavItem[] = [
@@ -216,6 +224,31 @@ const chips = (items: { href: string; label: string }[], empty: string): string 
 const lineage = (parts: string[]): string =>
   parts.length ? `<p class="lineage">${parts.join(' <span aria-hidden="true">›</span> ')}</p>` : '';
 
+/**
+ * Name a record for display elsewhere (activity feed, file manager). Returns
+ * null when the record is gone: the audit trail and document index outlive the
+ * records they point at, and a dead link is worse than plain text.
+ */
+const recordLabel = (entity: string, id: string): string | null => {
+  if (entity === 'client') return services.repos.clients.get(id)?.name ?? null;
+  if (entity === 'customer') {
+    const c = services.repos.customers.get(id);
+    return c ? personsLabel(c) : null;
+  }
+  const t = services.repos.tickets.get(id);
+  return t ? `${t.ticketId} · ${t.title}` : null;
+};
+
+const recordHref = (entity: string, id: string): string => `/${esc(entity)}s/${esc(id)}`;
+
+/** The owning record as a link, or plain text if it no longer exists. */
+const recordRef = (entity: string, id: string): string => {
+  const name = recordLabel(entity, id);
+  if (name === null) return `<span class="sub">${esc(entity)} (removed)</span>`;
+  const href = recordHref(entity, id);
+  return `<a href="${href}" data-href="${href}">${esc(name)}</a>`;
+};
+
 const clientLink = (c: Client): string =>
   `<a href="/clients/${esc(c.id)}" data-href="/clients/${esc(c.id)}">${esc(c.name)}</a>`;
 const customerLink = (c: Customer): string =>
@@ -225,6 +258,19 @@ const customerLink = (c: Customer): string =>
 const historySection = (entity: string, id: string): string =>
   `<h3 class="section-title">History</h3>` +
   auditList(services.repos.audit.forEntity(entity, id), `audit:${entity}:${id}`);
+
+/**
+ * A record's files, plus the attach control. Upload is a plain multipart form
+ * (not an /intent): it carries bytes, which the JSON door doesn't take.
+ */
+const documentsSection = (entity: AuditEntity, id: string): string =>
+  `<h3 class="section-title">Documents</h3>` +
+  documentChips(services.documentsFor(entity, id), `documents:${entity}:${id}`) +
+  `<form class="attach" method="post" action="/files/upload" enctype="multipart/form-data">` +
+  `<input type="hidden" name="entity" value="${esc(entity)}">` +
+  `<input type="hidden" name="entityId" value="${esc(id)}">` +
+  `<div class="form-row"><input type="file" name="file" required></div>` +
+  `<div class="form-controls"><button type="submit">Attach</button></div></form>`;
 
 /** In the drawer only: a way back out to the full, addressable page. */
 const fullPageLink = (href: string, inDrawer: boolean): string =>
@@ -239,6 +285,7 @@ function clientPanel(c: Client, inDrawer = false): string {
     `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
     `<h3 class="section-title">Customers</h3>` +
     chips(customers.map((x) => ({ href: `/customers/${x.id}`, label: personsLabel(x) })), 'No customers yet.') +
+    documentsSection('client', c.id) +
     historySection('client', c.id) +
     fullPageLink(`/clients/${esc(c.id)}`, inDrawer) +
     `</div>`
@@ -257,6 +304,7 @@ function customerPanel(c: Customer, inDrawer = false): string {
     `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>` +
     `<h3 class="section-title">Tickets</h3>` +
     chips(tickets.map((t) => ({ href: `/tickets/${t.id}`, label: `${t.ticketId} · ${t.title}` })), 'No tickets yet.') +
+    documentsSection('customer', c.id) +
     historySection('customer', c.id) +
     fullPageLink(`/customers/${esc(c.id)}`, inDrawer) +
     `</div>`
@@ -271,7 +319,11 @@ function ticketPanel(t: Ticket, inDrawer = false): string {
     lineage([client ? clientLink(client) : '', customer ? customerLink(customer) : '',
       `<strong>${esc(t.ticketId)}</strong>`].filter(Boolean)) +
     panelMeta([`<span class="badge accent">${esc(t.status)}</span>`,
-      `<a href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">PDF ↗</a>`]) +
+      `<a href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">PDF ↗</a>`,
+      // Saving is explicit: the link above is a live render, this keeps a copy
+      // as a document of THIS ticket rather than silently filing every preview.
+      `<form method="post" action="/tickets/${esc(t.id)}/pdf/save" class="inline">` +
+      `<button type="submit" class="linkish">Save PDF to documents</button></form>`]) +
     `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` +
     `<h3 class="section-title">Progress log</h3>${progressList(t)}` +
     `<form class="fb" data-action="ticket.progress" data-mode="create">` +
@@ -279,14 +331,62 @@ function ticketPanel(t: Ticket, inDrawer = false): string {
     `<div class="form-row"><label for="f_update">Add update</label>` +
     `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
     `<div class="form-controls"><button type="submit">Log</button></div></form>` +
+    documentsSection('ticket', t.id) +
     historySection('ticket', t.id) +
     fullPageLink(`/tickets/${esc(t.id)}`, inDrawer) +
     `</div>`
   );
 }
 
+/**
+ * A document's own panel: what it is, which record it belongs to, and — where
+ * the browser can render it — the file itself. Preview is inline for images
+ * and PDFs; everything else offers the bytes rather than pretending.
+ */
+async function documentPanel(d: DocumentRef, inDrawer = false): Promise<string> {
+  const kind = previewKind(d.mimeType);
+  const raw = `/files/${esc(d.id)}/raw`;
+  let preview: string;
+  if (d.source === 'link') {
+    preview = `<p class="muted">This file lives in Google Drive — STEWARD stores a link, not a copy.</p>` +
+      `<p><a class="btn" href="${esc(d.webViewLink)}" target="_blank" rel="noopener">Open in Drive ↗</a></p>`;
+  } else if (kind === 'image') {
+    preview = `<div class="preview"><img src="${raw}" alt="${esc(d.name)}"></div>`;
+  } else if (kind === 'pdf') {
+    preview = `<div class="preview preview--pdf"><iframe src="${raw}" title="${esc(d.name)}"></iframe></div>`;
+  } else if (kind === 'text') {
+    const bytes = await services.readDocument(d);
+    const text = bytes ? new TextDecoder().decode(bytes.slice(0, 20_000)) : '';
+    preview = `<pre class="preview preview--text">${esc(text)}</pre>`;
+  } else {
+    preview = `<p class="muted">No preview for ${esc(d.mimeType || 'this file type')}.</p>`;
+  }
+
+  return (
+    `<div data-panel-title="${esc(d.name)}">` +
+    lineage([recordRef(d.entity, d.entityId), `<strong>${esc(d.name)}</strong>`]) +
+    panelMeta([
+      `<span class="badge" data-source="${esc(d.source)}">${esc(d.source)}</span>`,
+      esc(d.mimeType || 'unknown type'), esc(fileSize(d.size)), esc(auditTime(d.createdAt)),
+    ]) +
+    preview +
+    `<div class="form-controls">` +
+    (d.source === 'link'
+      ? ''
+      : `<a class="btn" href="${raw}?download=1" download="${esc(d.name)}">Download</a>`) +
+    `<form method="post" action="/files/${esc(d.id)}/delete" onsubmit="return confirm('Remove this document?')">` +
+    `<button type="submit">Remove</button></form></div>` +
+    fullPageLink(`/files/${esc(d.id)}`, inDrawer) +
+    `</div>`
+  );
+}
+
 const fragment = (html: string): Response =>
   new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+
+/** Back to where the operator was, after a form post that carries bytes. */
+const backTo = (path: string): Response =>
+  new Response(null, { status: 303, headers: { Location: path } });
 
 /** Resolve a ticket's customer label; caches the customer lookups per call. */
 function ticketLabeler(): (t: Ticket) => string {
@@ -542,6 +642,27 @@ const server = Bun.serve({
         }
       },
     },
+    '/tickets/:id/pdf/save': {
+      POST: async (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const t = services.repos.tickets.get(id);
+        if (!t) return new Response('Not found', { status: 404 });
+        const customer = services.repos.customers.get(t.customerId);
+        const client = customer ? services.repos.clients.get(customer.clientId) : null;
+        try {
+          const bytes = await printToPdf(renderTicketDocument(t, customer, client));
+          await services.attachDocument(
+            { entity: 'ticket', entityId: t.id },
+            { name: `${t.ticketId}.pdf`, mimeType: 'application/pdf', bytes },
+            'generated', 'human',
+          );
+        } catch (e) {
+          console.error('[/tickets/:id/pdf/save]', e);
+          return new Response('PDF generation failed', { status: 502 });
+        }
+        return backTo(`/tickets/${t.id}`);
+      },
+    },
     '/tickets/:id/edit': {
       GET: (req) => {
         const id = (req as unknown as { params: { id: string } }).params.id;
@@ -552,29 +673,98 @@ const server = Bun.serve({
       },
     },
 
+    // --- Files (documents: the manager, previews, bytes) ---
+    '/files': {
+      GET: () => {
+        const docs = services.listDocuments();
+        const rows = docs.map((d) =>
+          `<tr class="row" data-surface="document:${esc(d.id)}" data-href="/files/${esc(d.id)}">` +
+          `<td><a href="/files/${esc(d.id)}">${esc(d.name)}</a></td>` +
+          `<td>${recordRef(d.entity, d.entityId)}</td>` +
+          `<td><span class="badge" data-source="${esc(d.source)}">${esc(d.source)}</span></td>` +
+          `<td class="sub">${esc(d.mimeType || '—')}</td>` +
+          `<td class="mono">${esc(fileSize(d.size))}</td>` +
+          `<td class="mono">${esc(auditTime(d.createdAt))}</td></tr>`).join('')
+          || `<tr class="empty"><td colspan="6">No documents yet. Attach one from any record.</td></tr>`;
+        return layout('Files',
+          `<div class="page-head"><h1>Files</h1><span class="sub">${docs.length} document${docs.length === 1 ? '' : 's'}</span></div>` +
+          `<div class="panel"><table class="dtable">` +
+          `<thead><tr><th>Name</th><th>Belongs to</th><th>Source</th><th>Type</th><th>Size</th><th>Added</th></tr></thead>` +
+          `<tbody class="rows" data-surface="document-list">${rows}</tbody></table></div>`,
+          { path: '/files', filter: { target: '[data-surface="document-list"]', placeholder: 'Filter files…' } });
+      },
+    },
+    '/files/upload': {
+      POST: async (req: Request) => {
+        // Bytes, so this is a multipart form rather than a JSON intent.
+        const form = await req.formData();
+        const file = form.get('file');
+        const entity = String(form.get('entity') ?? '') as AuditEntity;
+        const entityId = String(form.get('entityId') ?? '');
+        if (!(file instanceof File) || !entity || !entityId) {
+          return new Response('bad upload', { status: 400 });
+        }
+        await services.attachDocument(
+          { entity, entityId },
+          { name: file.name, mimeType: file.type || mimeFor(file.name), bytes: new Uint8Array(await file.arrayBuffer()) },
+          'upload', 'human',
+        );
+        return backTo(recordHref(entity, entityId));
+      },
+    },
+    '/files/:id': {
+      GET: async (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const d = services.getDocument(id);
+        if (!d) return new Response('Not found', { status: 404 });
+        return layout(d.name,
+          `<a class="back-link" href="/files">← Files</a>` +
+          `<div class="page-head"><h1>${esc(d.name)}</h1></div>` +
+          `<div class="panel"><div class="panel__body">${await documentPanel(d)}</div></div>`,
+          { path: '/files', crumbs: `<a href="/files">Files</a> / <strong>${esc(d.name)}</strong>` });
+      },
+    },
+    '/files/:id/panel': {
+      GET: async (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const d = services.getDocument(id);
+        return d ? fragment(await documentPanel(d, true)) : new Response('Not found', { status: 404 });
+      },
+    },
+    '/files/:id/raw': {
+      GET: async (req: Request) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const d = services.getDocument(id);
+        if (!d) return new Response('Not found', { status: 404 });
+        if (d.source === 'link') return Response.redirect(d.webViewLink, 302);
+        const bytes = await services.readDocument(d);
+        if (!bytes) return new Response('File missing from store', { status: 410 });
+        const download = new URL(req.url).searchParams.has('download');
+        return new Response(bytes as unknown as BodyInit, {
+          headers: {
+            'Content-Type': d.mimeType || 'application/octet-stream',
+            'Content-Disposition':
+              `${download ? 'attachment' : 'inline'}; filename="${d.name.replace(/["\\]/g, '')}"`,
+          },
+        });
+      },
+    },
+    '/files/:id/delete': {
+      POST: async (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const d = services.getDocument(id);
+        if (!d) return new Response('Not found', { status: 404 });
+        await services.removeDocument(id, 'human');
+        return backTo('/files');
+      },
+    },
+
     // --- Activity (the audit trail, whole-workspace) ---
     '/activity': {
       GET: () => {
-        // Resolve each row to its record's current name. The trail is
-        // append-only, so it outlives the records it describes: a row whose
-        // record is gone still shows, as plain text rather than a dead link.
-        const label = (entity: string, id: string): string | null => {
-          if (entity === 'client') return services.repos.clients.get(id)?.name ?? null;
-          if (entity === 'customer') {
-            const c = services.repos.customers.get(id);
-            return c ? personsLabel(c) : null;
-          }
-          const t = services.repos.tickets.get(id);
-          return t ? `${t.ticketId} · ${t.title}` : null;
-        };
         const entries = services.repos.audit.recent(200);
-        const items = entries.map((e) => {
-          const name = label(e.entity, e.entityId);
-          const href = `/${esc(e.entity)}s/${esc(e.entityId)}`;
-          return auditItem(e, name === null
-            ? `<span class="sub">${esc(e.entity)} (removed)</span>`
-            : `<a href="${href}" data-href="${href}">${esc(name)}</a>`);
-        }).join('') || '<li class="muted">No activity recorded yet.</li>';
+        const items = entries.map((e) => auditItem(e, recordRef(e.entity, e.entityId))).join('')
+          || '<li class="muted">No activity recorded yet.</li>';
         return layout('Activity',
           `<div class="page-head"><h1>Activity</h1><span class="sub">${entries.length} most recent changes</span></div>` +
           `<div class="panel"><div class="panel__body"><ul class="audit">${items}</ul></div></div>`,

@@ -5,6 +5,7 @@ import type {
   AuditEntry,
   Client,
   Customer,
+  DocumentRef,
   Ticket,
 } from '../domain/types.ts';
 
@@ -48,9 +49,20 @@ export interface AuditRepository {
   recent(limit?: number): AuditEntry[];
 }
 
+export type NewDocument = Omit<DocumentRef, 'id' | 'createdAt'>;
+
+export interface DocumentRepository {
+  list(): DocumentRef[];
+  forEntity(entity: string, entityId: string): DocumentRef[];
+  get(id: string): DocumentRef | null;
+  create(input: NewDocument): DocumentRef;
+  remove(id: string): void;
+}
+
 export interface Repositories {
   clients: ClientRepository;
   customers: CustomerRepository;
   tickets: TicketRepository;
   audit: AuditRepository;
+  documents: DocumentRepository;
 }

@@ -2,8 +2,9 @@ import { test, expect } from 'bun:test';
 import {
   renderForm, customerSchema, esc, customerRow,
   auditTime, auditSummary, auditItem, auditList,
+  fileSize, previewKind, documentChip,
 } from './html.ts';
-import type { AuditEntry, Client, Customer } from '../domain/types.ts';
+import type { AuditEntry, Client, Customer, DocumentRef } from '../domain/types.ts';
 
 const auditEntry = (over: Partial<AuditEntry> = {}): AuditEntry => ({
   id: 'aud_1', entity: 'customer', entityId: 'cus_1', action: 'update',
@@ -96,4 +97,32 @@ test('view mode shows a select option label, not the stored id', () => {
   const html = renderForm(customerSchema([client], 'customer.update'), 'view', { clientId: 'cli_1' });
   expect(html).toContain('Acme');
   expect(html).not.toContain('cli_1');
+});
+
+// ---- documents -------------------------------------------------------------
+
+test('fileSize reports bytes exactly and larger units for reading', () => {
+  expect(fileSize(0)).toBe('—');
+  expect(fileSize(512)).toBe('512 B');
+  expect(fileSize(2048)).toBe('2.0 KB');
+  expect(fileSize(5 * 1024 * 1024)).toBe('5.0 MB');
+});
+
+test('previewKind decides what the browser can render inline', () => {
+  expect(previewKind('image/png')).toBe('image');
+  expect(previewKind('application/pdf')).toBe('pdf');
+  expect(previewKind('text/plain')).toBe('text');
+  expect(previewKind('application/vnd.ms-excel')).toBe('none');
+});
+
+test('documentChip carries its surface, source and escapes the name', () => {
+  const d: DocumentRef = {
+    id: 'doc_1', entity: 'ticket', entityId: 'tkt_1', name: '<script>.pdf',
+    mimeType: 'application/pdf', size: 10, source: 'generated', storage: 'local',
+    storageId: 'x', webViewLink: '', createdAt: '', createdBy: 'human',
+  };
+  const html = documentChip(d);
+  expect(html).toContain('data-surface="document:doc_1"');
+  expect(html).toContain('data-source="generated"');
+  expect(html).not.toContain('<script>');
 });

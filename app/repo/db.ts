@@ -92,6 +92,24 @@ function migrate(d: Database): void {
       diff TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit(entity, entityId);
+
+    -- Files belonging to a record. The bytes live behind the DocumentStore
+    -- port (local disk or Drive); this table is the index over them.
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      entity TEXT NOT NULL,
+      entityId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mimeType TEXT NOT NULL DEFAULT '',
+      size INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL,            -- generated | upload | link
+      storage TEXT NOT NULL,           -- local | drive
+      storageId TEXT NOT NULL,
+      webViewLink TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL,
+      createdBy TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_documents_entity ON documents(entity, entityId);
   `);
 }
 

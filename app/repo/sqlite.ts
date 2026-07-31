@@ -7,14 +7,17 @@ import type {
   AuditEntry,
   Client,
   Customer,
+  DocumentRef,
   Ticket,
 } from '../domain/types.ts';
 import type {
   AuditRepository,
   ClientRepository,
   CustomerRepository,
+  DocumentRepository,
   NewClient,
   NewCustomer,
+  NewDocument,
   NewTicket,
   Repositories,
   TicketRepository,
@@ -233,6 +236,42 @@ class SqliteAuditRepository implements AuditRepository {
   }
 }
 
+// --- documents --------------------------------------------------------------
+
+class SqliteDocumentRepository implements DocumentRepository {
+  constructor(private d: Database) {}
+
+  list(): DocumentRef[] {
+    return this.d.query<DocumentRef, []>(
+      'SELECT * FROM documents ORDER BY createdAt DESC',
+    ).all();
+  }
+  forEntity(entity: string, entityId: string): DocumentRef[] {
+    return this.d.query<DocumentRef, [string, string]>(
+      'SELECT * FROM documents WHERE entity = ? AND entityId = ? ORDER BY createdAt DESC',
+    ).all(entity, entityId);
+  }
+  get(id: string): DocumentRef | null {
+    return this.d.query<DocumentRef, [string]>(
+      'SELECT * FROM documents WHERE id = ?',
+    ).get(id) ?? null;
+  }
+  create(input: NewDocument): DocumentRef {
+    const doc: DocumentRef = { ...input, id: newId('doc'), createdAt: now() };
+    this.d.run(
+      `INSERT INTO documents
+         (id,entity,entityId,name,mimeType,size,source,storage,storageId,webViewLink,createdAt,createdBy)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [doc.id, doc.entity, doc.entityId, doc.name, doc.mimeType, doc.size,
+        doc.source, doc.storage, doc.storageId, doc.webViewLink, doc.createdAt, doc.createdBy],
+    );
+    return doc;
+  }
+  remove(id: string): void {
+    this.d.run('DELETE FROM documents WHERE id = ?', [id]);
+  }
+}
+
 // --- factory ---------------------------------------------------------------
 
 export function sqliteRepositories(database: Database = db()): Repositories {
@@ -241,5 +280,6 @@ export function sqliteRepositories(database: Database = db()): Repositories {
     customers: new SqliteCustomerRepository(database),
     tickets: new SqliteTicketRepository(database),
     audit: new SqliteAuditRepository(database),
+    documents: new SqliteDocumentRepository(database),
   };
 }

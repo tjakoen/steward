@@ -2,7 +2,7 @@
 // FormBuilder lives here: one schema-driven renderer with create/edit/view modes.
 
 import type {
-  Client, Customer, Ticket, ProgressEntry,
+  AuditEntry, Client, Customer, Ticket, ProgressEntry,
 } from '../domain/types.ts';
 import { TICKET_STATUSES } from '../domain/types.ts';
 
@@ -49,6 +49,12 @@ function fieldControl(f: Field, value: string): string {
 function fieldDisplay(f: Field, value: string): string {
   if (f.type === 'color') {
     return `<span class="swatch" style="background:${esc(value)}"></span><code>${esc(value)}</code>`;
+  }
+  // A select stores an id but means its label — show what the human picked,
+  // not the key it maps to.
+  if (f.type === 'select') {
+    const opt = (f.options ?? []).find((o) => o.value === value);
+    return `<span data-field-value>${esc(opt ? opt.label : value) || '<em>—</em>'}</span>`;
   }
   return `<span data-field-value>${esc(value) || '<em>—</em>'}</span>`;
 }
@@ -227,4 +233,60 @@ export function progressItem(e: ProgressEntry): string {
 export function progressList(t: Ticket): string {
   const items = t.progressLog.map(progressItem).join('') || '<li class="muted">No entries yet.</li>';
   return `<ul class="progress" data-surface="ticket-progress:${esc(t.id)}">${items}</ul>`;
+}
+
+// ---- audit trail -----------------------------------------------------------
+// The audit table has recorded every mutation since 0001; these render it.
+
+/** "2026-07-31T09:12:44.000Z" → "2026-07-31 09:12". Display-only. */
+export function auditTime(iso: string): string {
+  return iso.length >= 16 ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : iso;
+}
+
+/**
+ * Summarise an audit row's `diff` (a JSON blob of the change) as readable
+ * field names. Values are deliberately NOT shown: a diff can carry notes and
+ * contact details, and the timeline is a scannable "what changed", not a
+ * data dump — the record itself shows current values.
+ */
+export function auditSummary(e: AuditEntry): string {
+  let parsed: unknown;
+  try { parsed = JSON.parse(e.diff); } catch { return ''; }
+  if (!parsed || typeof parsed !== 'object') return '';
+  const keys = Object.keys(parsed as Record<string, unknown>).filter((k) => k !== 'id');
+  if (!keys.length) return '';
+  if (keys.includes('addProgress')) return 'progress logged';
+  if (keys.length === 1 && keys[0] === 'status') {
+    const s = (parsed as { status?: unknown }).status;
+    return typeof s === 'string' ? `status → ${s}` : 'status changed';
+  }
+  // A create touches every field; listing them all buries the timeline.
+  const shown = keys.slice(0, 4).join(', ');
+  return keys.length > 4 ? `${shown} +${keys.length - 4} more` : shown;
+}
+
+/**
+ * One audit row: when, who, what. `actor` is stamped at the door (human | ai).
+ * `labelHtml` names the record the row belongs to (used by the workspace-wide
+ * feed, where rows from different records are interleaved) — it is RAW HTML so
+ * callers can link it, and callers are responsible for escaping its text.
+ */
+export function auditItem(e: AuditEntry, labelHtml?: string): string {
+  const summary = auditSummary(e);
+  return (
+    `<li class="audit__row">` +
+    `<time>${esc(auditTime(e.at))}</time>` +
+    `<span class="badge audit__actor" data-actor="${esc(e.actor)}">${esc(e.actor)}</span>` +
+    `<span class="audit__what">${esc(e.action)}${labelHtml ? ` ${labelHtml}` : ''}` +
+    (summary ? ` <span class="sub">· ${esc(summary)}</span>` : '') +
+    `</span></li>`
+  );
+}
+
+/** Activity timeline for one record (newest first — repo returns it sorted). */
+export function auditList(entries: AuditEntry[], surface?: string): string {
+  const items = entries.map((e) => auditItem(e)).join('')
+    || '<li class="muted">No activity recorded yet.</li>';
+  const s = surface ? ` data-surface="${esc(surface)}"` : '';
+  return `<ul class="audit"${s}>${items}</ul>`;
 }

@@ -106,7 +106,7 @@ document.addEventListener('input', (e) => {
   const scope = document.querySelector(inp.getAttribute('data-filter'));
   if (!scope) return;
   const q = inp.value.trim().toLowerCase();
-  scope.querySelectorAll('tr.row, li.card').forEach((r) => {
+  scope.querySelectorAll('tr.row, li.card, li.audit__row').forEach((r) => {
     r.hidden = q ? !r.textContent.toLowerCase().includes(q) : false;
   });
   refreshBoardCounts();

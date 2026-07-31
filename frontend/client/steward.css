@@ -250,6 +250,47 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .drawer__body .panel-meta:last-child { margin: var(--space-5, 1.25rem) 0 0; }
 .drawer__body .section-title { margin-top: var(--space-6, 1.5rem); }
 
+/* ---- Relations: lineage breadcrumb + record chips ------------------------ */
+.lineage {
+  margin: 0 0 var(--space-2, .5rem); display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2, .5rem); font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+}
+.lineage a { color: var(--color-muted, #6E6C64); }
+.lineage a:hover { color: var(--color-fg, #1C1B17); }
+.lineage strong { color: var(--color-fg, #1C1B17); font-weight: 600; }
+
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-2, .5rem); margin: 0 0 var(--space-2, .5rem); }
+.chip {
+  display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill, 3px);
+  font-size: var(--text-xs, .8125rem); text-decoration: none; cursor: pointer;
+  border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  background: var(--color-bg, #E2E0D8); color: var(--color-fg, #1C1B17);
+}
+.chip:hover { border-color: var(--color-accent, #1C1B17); }
+
+/* ---- Audit trail (the recorded history of every mutation) ---------------- */
+.audit { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-1, .25rem); }
+.audit__row {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2, .5rem);
+  padding: var(--space-2, .5rem) 0; font-size: var(--text-sm, .875rem);
+  border-bottom: 1px solid var(--color-line, rgba(28,27,23,.14));
+}
+.audit__row:last-child { border-bottom: 0; }
+.audit__row time {
+  color: var(--color-muted, #6E6C64); font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, monospace); font-size: var(--text-xs, .8125rem); flex: none;
+}
+/* Who did it. AI-authored changes are visually distinct from human ones — the
+   actor is stamped server-side at the door, so this is a trustworthy signal. */
+.audit__actor { flex: none; text-transform: lowercase; }
+.audit__actor[data-actor="ai"] {
+  font-family: var(--font-grain-fine, inherit);
+  border-color: var(--color-accent, #1C1B17); color: var(--color-accent, #1C1B17);
+  background: var(--color-accent-soft, transparent);
+}
+.audit__what { color: var(--color-fg, #1C1B17); }
+.audit__what .sub { color: var(--color-muted, #6E6C64); }
+
 /* ---- Article (MILL help / changelog rendered inside the shell) ----------- */
 .doc { max-width: 46rem; }
 .doc h1 { font-size: var(--text-xl, 1.3rem); }

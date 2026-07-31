@@ -32,7 +32,7 @@ import { seedDemo } from './app/seed/demo.ts';
 import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
 import {
   esc, renderForm, customerSchema, clientSchema, customerRow, clientRow, personsLabel,
-  ticketSchema, ticketEditSchema, renderBoard, progressList,
+  ticketSchema, ticketEditSchema, renderBoard, progressList, auditList, auditItem,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
 import type { Client, Customer, Ticket } from './app/domain/types.ts';
@@ -101,6 +101,9 @@ const NAV_WORK: NavItem[] = [
   { label: 'Customers', href: '/customers', ico: '☰', count: () => services.repos.customers.list().length },
   { label: 'Tickets', href: '/tickets', ico: '◧', count: () => services.repos.tickets.list().length },
 ];
+const NAV_ACTIVITY: NavItem[] = [
+  { label: 'Activity', href: '/activity', ico: '↻' },
+];
 const NAV_FOOT: NavItem[] = [
   { label: 'Help', href: '/help', ico: '?' },
   { label: 'Settings', href: '/settings', ico: '⚙' },
@@ -131,6 +134,7 @@ function shell(title: string, body: string, opts: ShellOpts): string {
     NAV_MAIN.map((i) => navLink(i, path)).join('') +
     `<span class="nav__label">Workspace</span>` +
     NAV_WORK.map((i) => navLink(i, path)).join('') +
+    NAV_ACTIVITY.map((i) => navLink(i, path)).join('') +
     `<span class="nav__spacer"></span>` +
     NAV_FOOT.map((i) => navLink(i, path)).join('');
 
@@ -201,15 +205,41 @@ const ticketValues = (t: Ticket): Record<string, string> => ({
 const panelMeta = (parts: string[]): string =>
   `<p class="panel-meta">${parts.filter(Boolean).join(' · ')}</p>`;
 
+/** Related records as clickable chips — the connective tissue between panels. */
+const chips = (items: { href: string; label: string }[], empty: string): string =>
+  items.length
+    ? `<div class="chips">${items.map((i) =>
+        `<a class="chip" href="${i.href}" data-href="${i.href}">${esc(i.label)}</a>`).join('')}</div>`
+    : `<p class="muted">${esc(empty)}</p>`;
+
+/** Where a record sits in Client → Customer → Ticket, as links. */
+const lineage = (parts: string[]): string =>
+  parts.length ? `<p class="lineage">${parts.join(' <span aria-hidden="true">›</span> ')}</p>` : '';
+
+const clientLink = (c: Client): string =>
+  `<a href="/clients/${esc(c.id)}" data-href="/clients/${esc(c.id)}">${esc(c.name)}</a>`;
+const customerLink = (c: Customer): string =>
+  `<a href="/customers/${esc(c.id)}" data-href="/customers/${esc(c.id)}">${esc(personsLabel(c))}</a>`;
+
+/** The recorded history of one record, rendered as a timeline section. */
+const historySection = (entity: string, id: string): string =>
+  `<h3 class="section-title">History</h3>` +
+  auditList(services.repos.audit.forEntity(entity, id), `audit:${entity}:${id}`);
+
 /** In the drawer only: a way back out to the full, addressable page. */
 const fullPageLink = (href: string, inDrawer: boolean): string =>
   inDrawer ? `<p class="panel-meta"><a href="${href}">Open full page ↗</a></p>` : '';
 
 function clientPanel(c: Client, inDrawer = false): string {
+  const customers = services.repos.customers.list(c.id);
   return (
     `<div data-panel-title="${esc(c.name)}">` +
-    panelMeta([`<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`]) +
+    panelMeta([`<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`,
+      `${customers.length} customer${customers.length === 1 ? '' : 's'}`]) +
     `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
+    `<h3 class="section-title">Customers</h3>` +
+    chips(customers.map((x) => ({ href: `/customers/${x.id}`, label: personsLabel(x) })), 'No customers yet.') +
+    historySection('client', c.id) +
     fullPageLink(`/clients/${esc(c.id)}`, inDrawer) +
     `</div>`
   );
@@ -218,10 +248,16 @@ function clientPanel(c: Client, inDrawer = false): string {
 function customerPanel(c: Customer, inDrawer = false): string {
   const clients = services.repos.clients.list();
   const client = services.repos.clients.get(c.clientId);
+  const tickets = services.repos.tickets.list(c.id);
   return (
     `<div data-panel-title="${esc(personsLabel(c))}">` +
-    panelMeta([`<span class="mono">${esc(c.code)}</span>`, client ? esc(client.name) : '']) +
+    lineage([client ? clientLink(client) : '', `<strong>${esc(personsLabel(c))}</strong>`].filter(Boolean)) +
+    panelMeta([`<span class="mono">${esc(c.code)}</span>`,
+      `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`]) +
     `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>` +
+    `<h3 class="section-title">Tickets</h3>` +
+    chips(tickets.map((t) => ({ href: `/tickets/${t.id}`, label: `${t.ticketId} · ${t.title}` })), 'No tickets yet.') +
+    historySection('customer', c.id) +
     fullPageLink(`/customers/${esc(c.id)}`, inDrawer) +
     `</div>`
   );
@@ -229,11 +265,12 @@ function customerPanel(c: Customer, inDrawer = false): string {
 
 function ticketPanel(t: Ticket, inDrawer = false): string {
   const customer = services.repos.customers.get(t.customerId);
-  const who = customer ? personsLabel(customer) : '—';
+  const client = customer ? services.repos.clients.get(customer.clientId) : null;
   return (
     `<div data-panel-title="${esc(t.title)}">` +
-    panelMeta([`<span class="mono">${esc(t.ticketId)}</span>`, esc(who),
-      `<span class="badge accent">${esc(t.status)}</span>`,
+    lineage([client ? clientLink(client) : '', customer ? customerLink(customer) : '',
+      `<strong>${esc(t.ticketId)}</strong>`].filter(Boolean)) +
+    panelMeta([`<span class="badge accent">${esc(t.status)}</span>`,
       `<a href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">PDF ↗</a>`]) +
     `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` +
     `<h3 class="section-title">Progress log</h3>${progressList(t)}` +
@@ -242,6 +279,7 @@ function ticketPanel(t: Ticket, inDrawer = false): string {
     `<div class="form-row"><label for="f_update">Add update</label>` +
     `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
     `<div class="form-controls"><button type="submit">Log</button></div></form>` +
+    historySection('ticket', t.id) +
     fullPageLink(`/tickets/${esc(t.id)}`, inDrawer) +
     `</div>`
   );
@@ -511,6 +549,36 @@ const server = Bun.serve({
         if (!t) return new Response('Not found', { status: 404 });
         return new Response(renderForm(ticketEditSchema(), 'edit', ticketValues(t)),
           { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      },
+    },
+
+    // --- Activity (the audit trail, whole-workspace) ---
+    '/activity': {
+      GET: () => {
+        // Resolve each row to its record's current name. The trail is
+        // append-only, so it outlives the records it describes: a row whose
+        // record is gone still shows, as plain text rather than a dead link.
+        const label = (entity: string, id: string): string | null => {
+          if (entity === 'client') return services.repos.clients.get(id)?.name ?? null;
+          if (entity === 'customer') {
+            const c = services.repos.customers.get(id);
+            return c ? personsLabel(c) : null;
+          }
+          const t = services.repos.tickets.get(id);
+          return t ? `${t.ticketId} · ${t.title}` : null;
+        };
+        const entries = services.repos.audit.recent(200);
+        const items = entries.map((e) => {
+          const name = label(e.entity, e.entityId);
+          const href = `/${esc(e.entity)}s/${esc(e.entityId)}`;
+          return auditItem(e, name === null
+            ? `<span class="sub">${esc(e.entity)} (removed)</span>`
+            : `<a href="${href}" data-href="${href}">${esc(name)}</a>`);
+        }).join('') || '<li class="muted">No activity recorded yet.</li>';
+        return layout('Activity',
+          `<div class="page-head"><h1>Activity</h1><span class="sub">${entries.length} most recent changes</span></div>` +
+          `<div class="panel"><div class="panel__body"><ul class="audit">${items}</ul></div></div>`,
+          { path: '/activity', filter: { target: '.audit', placeholder: 'Filter activity…' } });
       },
     },
 

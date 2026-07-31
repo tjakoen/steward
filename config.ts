@@ -10,7 +10,11 @@ const GRAIN = dirname(fileURLToPath(import.meta.resolve('@tjakoen/grain/PLAN.md'
 
 export const config = {
   isDev,
-  port: Number(Bun.env.PORT ?? 3000),
+  // A malformed PORT (e.g. a whole shell command pasted into .env) must not
+  // become NaN and silently strand the server on a random port.
+  port: Number.isFinite(Number(Bun.env.PORT)) && Number(Bun.env.PORT) > 0
+    ? Number(Bun.env.PORT)
+    : 3000,
   root: HERE,
   grainDir: GRAIN,
 

@@ -15,6 +15,8 @@ data/
 secrets/
 .env
 .env.*
+# the template carries no values — it is meant to be committed
+!.env.example
 *.local.*
 service-account*.json
 

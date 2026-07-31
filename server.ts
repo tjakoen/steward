@@ -50,12 +50,17 @@ const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
 db(); // ensure schema exists
 const repos = sqliteRepositories();
 
-// Google connection (user consent, PKCE). Loopback redirect must match what is
-// registered on the OAuth client — hence 127.0.0.1 and this server's port.
+// Google connection (user consent, PKCE) over a loopback redirect.
+//
+// The redirect URI is resolved LAZILY from the port actually bound, not the one
+// configured: Bun may hand us a different port, and the URI Google redirects to
+// has to be one this process is really listening on. Desktop OAuth clients
+// accept any loopback port, so this needs no registration.
+let listeningPort = config.port;
 const googleAuth = makeGoogleAuth(repos.settings, {
   clientId: config.google.clientId,
   clientSecret: config.google.clientSecret,
-  redirectUri: `http://127.0.0.1:${config.port}${config.google.redirectPath}`,
+  get redirectUri() { return `http://127.0.0.1:${listeningPort}${config.google.redirectPath}`; },
 });
 
 // Documents: local disk until an account is connected, Drive afterwards. Reads
@@ -712,7 +717,7 @@ const server = Bun.serve({
           authUrl({
             clientId: config.google.clientId,
             clientSecret: config.google.clientSecret,
-            redirectUri: `http://127.0.0.1:${config.port}${config.google.redirectPath}`,
+            redirectUri: `http://127.0.0.1:${listeningPort}${config.google.redirectPath}`,
           }, await challengeFor(verifier), state),
           302,
         );
@@ -958,6 +963,9 @@ const server = Bun.serve({
     return new Response(config.isDev ? String(err.stack) : 'Internal Server Error', { status: 500 });
   },
 });
+
+// The OAuth redirect must point at the port we actually bound, not the one asked for.
+listeningPort = server.port ?? config.port;
 
 console.log(`STEWARD → http://localhost:${server.port}`);
 

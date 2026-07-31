@@ -145,8 +145,9 @@ export function customerRow(c: Customer): string {
 export function clientRow(c: Client): string {
   const info = c.branding.companyInfo ? esc(c.branding.companyInfo) : '<span class="sub">—</span>';
   return (
-    `<tr class="row" data-surface="client:${esc(c.id)}">` +
-    `<td><span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="name">${esc(c.name)}</span></td>` +
+    `<tr class="row" data-surface="client:${esc(c.id)}" data-href="/clients/${esc(c.id)}">` +
+    `<td><span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span>` +
+    `<a href="/clients/${esc(c.id)}">${esc(c.name)}</a></td>` +
     `<td class="mono">${esc(c.code)}</td>` +
     `<td class="sub">${info}</td>` +
     `</tr>`

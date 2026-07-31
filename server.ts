@@ -35,7 +35,7 @@ import {
   ticketSchema, ticketEditSchema, renderBoard, progressList,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
-import type { Customer, Ticket } from './app/domain/types.ts';
+import type { Client, Customer, Ticket } from './app/domain/types.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
 
@@ -181,6 +181,12 @@ const customerValues = (c: Customer): Record<string, string> => ({
   email: c.email, phone: c.phone, notes: c.notes,
 });
 
+const clientValues = (c: Client): Record<string, string> => ({
+  id: c.id, name: c.name, code: c.code,
+  primaryColor: c.branding.primaryColor, secondaryColor: c.branding.secondaryColor,
+  companyInfo: c.branding.companyInfo, pdfFooter: c.branding.pdfFooter,
+});
+
 const ticketValues = (t: Ticket): Record<string, string> => ({
   id: t.id, title: t.title, status: t.status,
   summary: t.summary, nextAction: t.nextAction, waitingOn: t.waitingOn,
@@ -306,6 +312,27 @@ const server = Bun.serve({
           { path: '/clients',
             filter: { target: '[data-surface="client-list"]', placeholder: 'Filter clients…' },
             drawer: { title: 'New client', body: renderForm(clientSchema(), 'create') } });
+      },
+    },
+    '/clients/:id': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.clients.get(id);
+        if (!c) return new Response('Not found', { status: 404 });
+        return layout(c.name,
+          `<a class="back-link" href="/clients">← Clients</a>` +
+          `<div class="page-head"><h1>${esc(c.name)}</h1><span class="sub">${esc(c.code)}</span></div>` +
+          `<div class="panel"><div class="panel__body" data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div></div>`,
+          { path: '/clients', crumbs: `<a href="/clients">Clients</a> / <strong>${esc(c.name)}</strong>` });
+      },
+    },
+    '/clients/:id/edit': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.clients.get(id);
+        if (!c) return new Response('Not found', { status: 404 });
+        return new Response(renderForm(clientSchema('client.update'), 'edit', clientValues(c)),
+          { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       },
     },
     '/customers': {

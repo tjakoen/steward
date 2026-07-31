@@ -263,16 +263,32 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 .chat-panel__head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2, .5rem);
-  padding: var(--space-3, .5rem) var(--space-4, .7rem); border-bottom: 1px solid var(--color-line, rgba(28,27,23,.14));
+  padding: 0 var(--space-4, .7rem); height: var(--topbar-h, 52px); flex: none;
+  border-bottom: 1px solid var(--color-line, rgba(28,27,23,.14));
   font-weight: 600; font-size: var(--text-sm, .875rem);
 }
+.chat-panel__head strong::before {
+  content: "✦"; margin-right: 6px; color: var(--color-accent, var(--color-fg, #1C1B17));
+}
 .chat-status { font-size: var(--text-xs, .75rem); color: var(--color-muted, #666); text-align: right; }
-.chat-log { flex: 1; overflow-y: auto; padding: var(--space-4, .7rem); display: flex; flex-direction: column; gap: var(--space-2, .5rem); }
-.chat-log .chat-message { font-size: var(--text-sm, .9rem); line-height: 1.4; }
-.chat-log .chat-message[data-role="you"] { text-align: right; }
-.chat-log .chat-message[data-role="you"] .chat-message__body { background: var(--color-accent-soft, #E7EEFB); }
-.chat-log .chat-message__body { display: inline-block; padding: var(--space-2, .4rem) var(--space-3, .6rem); border-radius: var(--radius-md, 8px); background: var(--color-bg, #E2E0D8); }
-.chat-log .chat-message__who { display: block; font-size: var(--text-xs, .7rem); color: var(--color-muted, #888); margin-bottom: 2px; }
+.chat-log { flex: 1; overflow-y: auto; padding: var(--space-4, .7rem); display: flex; flex-direction: column; gap: var(--space-3, .6rem); }
+.chat-log:empty::before {
+  content: "Ask about your clients, customers, and tickets."; margin: auto; max-width: 22ch; text-align: center;
+  color: var(--color-muted, #888); font-size: var(--text-sm, .875rem); line-height: 1.5;
+}
+.chat-log .chat-message { font-size: var(--text-sm, .9rem); line-height: 1.45; max-width: 85%; }
+.chat-log .chat-message[data-role="you"] { align-self: flex-end; text-align: right; }
+.chat-log .chat-message[data-role="you"] .chat-message__body {
+  background: var(--color-accent-soft, #E7EEFB); border-color: transparent;
+}
+/* AI replies carry the GRAIN "grain" face — a subtle "written by the assistant" signal. */
+.chat-log .chat-message:not([data-role="you"]) .chat-message__body { font-family: var(--font-grain-fine, inherit); }
+.chat-log .chat-message__body {
+  display: inline-block; padding: var(--space-2, .4rem) var(--space-3, .6rem);
+  border-radius: var(--radius-md, 8px); border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  background: var(--color-bg, #E2E0D8);
+}
+.chat-log .chat-message__who { display: block; font-size: var(--text-xs, .7rem); color: var(--color-muted, #888); margin-bottom: 3px; }
 .chat-composer { display: flex; gap: var(--space-2, .4rem); padding: var(--space-3, .5rem); border-top: 1px solid var(--color-line, rgba(28,27,23,.14)); }
 .chat-composer textarea {
   flex: 1; resize: none; padding: var(--space-2, .4rem) var(--space-3, .5rem);

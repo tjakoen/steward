@@ -29,6 +29,12 @@ import { sqliteRepositories } from './app/repo/sqlite.ts';
 import { makeServices } from './app/services/index.ts';
 import { makeStewardReasoner } from './app/ai/reasoner.ts';
 import { seedDemo } from './app/seed/demo.ts';
+import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
+import {
+  esc, renderForm, customerSchema, clientSchema, customerRow, clientRow, personsLabel,
+} from './app/view/html.ts';
+import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
+import type { Customer } from './app/domain/types.ts';
 
 const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
 
@@ -69,10 +75,31 @@ const PAGE_HEAD =
   '<link rel="stylesheet" href="/app/steward.css">';
 const PAGE_ASSETS =
   '<script type="module" src="/scripts/theme.js"></script>' +
-  '<script type="module" src="/scripts/ai-dispatch.js"></script>';
+  '<script type="module" src="/scripts/ai-dispatch.js"></script>' +
+  '<script type="module" src="/app/steward-live.js"></script>';
 
 const renderAppPage = (html: string) => renderPage(html);
 const servePage = makePageServer(bunRuntime, config.pagesDir, renderAppPage, PAGE_ASSETS, PAGE_HEAD);
+
+// Full-document layout for STEWARD's dynamic (data-driven) routes.
+const NAV = ['Home:/', 'Clients:/clients', 'Customers:/customers', 'Plans:/plans', 'Help:/help', 'Settings:/settings']
+  .map((x) => { const [l, h] = x.split(':'); return `<a href="${h}">${l}</a>`; }).join('');
+function layout(title: string, body: string): Response {
+  const html =
+    `<!DOCTYPE html><html lang="en" data-themes="${config.themes}"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${PAGE_HEAD}</head>` +
+    `<body><header class="app-header"><strong>STEWARD</strong><nav>${NAV}</nav>` +
+    `<button type="button" data-toggle-scheme aria-label="Toggle light/dark">◐ Theme</button></header>` +
+    `<main class="app-main">${body}</main>${PAGE_ASSETS}</body></html>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+const customerValues = (c: Customer): Record<string, string> => ({
+  id: c.id, clientId: c.clientId,
+  given: c.persons[0]?.given ?? '', family: c.persons[0]?.family ?? '',
+  given2: c.persons[1]?.given ?? '', family2: c.persons[1]?.family ?? '',
+  email: c.email, phone: c.phone, notes: c.notes,
+});
 
 // ---- MILL (help + changelog) ----
 const millCollections: MillCollection[] = [
@@ -120,7 +147,24 @@ const server = Bun.serve({
       POST: async (req: Request) => {
         let body: unknown;
         try { body = await req.json(); } catch { return Response.json({ error: 'invalid JSON' }, { status: 400 }); }
-        const intent = parseIntent(body, 'anon');
+        const o = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+        const session = typeof o.session === 'string' && o.session ? o.session : 'anon';
+
+        // STEWARD domain vocabulary — dispatched synchronously; ops pushed over SSE.
+        if (typeof o.action === 'string' && isStewardAction(o.action)) {
+          const result = dispatchSteward(services, {
+            action: o.action,
+            payload: o.payload && typeof o.payload === 'object' ? (o.payload as Record<string, unknown>) : {},
+            actor: 'human', // stamped at the door
+            session,
+          });
+          if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
+          for (const op of result.ops) stream.push(session, OP_EVENT, op);
+          return new Response(null, { status: 202 });
+        }
+
+        // GRAIN vocabulary — fire-and-forget through the interaction layer.
+        const intent = parseIntent(body, session);
         if (!intent) return Response.json({ error: 'invalid intent' }, { status: 400 });
         void aiLayer.handleIntent(intent).catch((e) => console.error('[/intent]', e));
         return new Response(null, { status: 202 });
@@ -149,6 +193,53 @@ const server = Bun.serve({
     },
     '/demo/reset': {
       POST: () => { seedDemo(services.repos); return Response.json({ ok: true }); },
+    },
+
+    // --- CRM surfaces (data-driven) ---
+    '/clients': {
+      GET: () => {
+        const clients = services.repos.clients.list();
+        const rows = clients.map(clientRow).join('') || '<li class="muted">No clients yet.</li>';
+        return layout('Clients',
+          `<h1>Clients</h1><ul class="rows" data-surface="client-list">${rows}</ul>` +
+          `<section><h2>New client</h2>${renderForm(clientSchema(), 'create')}</section>`);
+      },
+    },
+    '/customers': {
+      GET: () => {
+        const clients = services.repos.clients.list();
+        const rows = services.repos.customers.list().map(customerRow).join('') || '<li class="muted">No customers yet.</li>';
+        const form = clients.length
+          ? `<section><h2>New customer</h2>${renderForm(customerSchema(clients), 'create')}</section>`
+          : `<p class="muted">Create a client first.</p>`;
+        return layout('Customers',
+          `<h1>Customers</h1>` +
+          `<form class="fb" data-action="customer.search" data-mode="view" onsubmit="return false">` +
+          `<div class="form-row"><label>Search</label><input name="query" id="search" placeholder="name / code / email"></div></form>` +
+          `<ul class="rows" data-surface="customer-list">${rows}</ul>${form}`);
+      },
+    },
+    '/customers/:id': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.customers.get(id);
+        if (!c) return new Response('Not found', { status: 404 });
+        const clients = services.repos.clients.list();
+        return layout(personsLabel(c),
+          `<a href="/customers">← Customers</a><h1>${esc(personsLabel(c))}</h1>` +
+          `<p class="muted">${esc(c.code)}</p>` +
+          `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>`);
+      },
+    },
+    '/customers/:id/edit': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.customers.get(id);
+        if (!c) return new Response('Not found', { status: 404 });
+        const clients = services.repos.clients.list();
+        return new Response(renderForm(customerSchema(clients, 'customer.update'), 'edit', customerValues(c)),
+          { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      },
     },
 
     // --- packaged assets ---

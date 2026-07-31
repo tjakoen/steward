@@ -26,3 +26,25 @@
   font-size: 0.85rem;
 }
 .log p { margin: 0.15rem 0; }
+
+.muted { opacity: 0.6; font-size: 0.85rem; }
+.rows { list-style: none; padding: 0; margin: 1rem 0; }
+.rows .row {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.5rem 0.25rem; border-bottom: 1px solid var(--color-border, #eee);
+}
+.swatch { width: 1rem; height: 1rem; border-radius: 3px; display: inline-block; border: 1px solid rgba(0,0,0,.15); }
+
+.fb { display: grid; gap: 0.6rem; max-width: 32rem; margin: 0.5rem 0 1.5rem; }
+.fb .form-row { display: grid; gap: 0.2rem; }
+.fb label { font-size: 0.8rem; opacity: 0.75; }
+.fb input, .fb select, .fb textarea {
+  padding: 0.45rem 0.55rem; border: 1px solid var(--color-border, #ccc);
+  border-radius: 5px; background: var(--color-surface, #fff); color: inherit; font: inherit;
+}
+.fb input[type="color"] { padding: 0.1rem; height: 2.2rem; }
+.fb textarea { min-height: 4rem; resize: vertical; }
+.form-controls { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+.form-status { font-size: 0.8rem; }
+.form-status[data-ok="true"] { color: #1a7f37; }
+.form-status[data-ok="false"] { color: #c33; }

@@ -139,11 +139,23 @@ reference and nothing else — covered by a test that fails if that ever changes
 
 ## What is not done
 
-The Picker dialog itself is unverified against a live account: it needs the API key and
-project number above, which no one has created yet. Everything on this side of it is
-exercised — the config route reports what is missing, `/files/link` records a picked file
-end to end (row in `/files` with a `link` badge, chip on the record, "Open in Drive" in the
-panel), and the button was clicked in a real browser against a connected account.
+One step, and it is the operator's own hands: nobody has picked a real file yet.
+
+The credentials arrived on 2026-08-01 (`GOOGLE_API_KEY`, `GOOGLE_PROJECT_NUMBER` — project
+number `308363978170`), and everything up to the pick is now exercised against them in a
+browser: `/files/picker-config` reports `ready: true` and mints a short-lived token, the
+click loads Google's SDK on demand, `google.picker` initialises, and the real Picker iframe
+mounts from `docs.google.com/picker` with our origin and app id. `setDeveloperKey`,
+`setAppId` and `setOAuthToken` are all wired.
+
+The dialog then asked to sign in — because that run used a **headless browser with no Google
+cookies**. The Picker renders its file list off the browser's own Google session; the OAuth
+token authorises the per-file grant that follows, not the UI. So the sign-in wall is the test
+harness, not STEWARD. What remains is to open the app in a browser already signed in as the
+connected account and pick a file STEWARD did not create — expect a chip on the record, a row
+in `/files` badged `link`, and "Open in Drive" in the panel.
+
+The `/files/link` route itself is already covered end to end on the demo database.
 
 ## Verified against a real account (2026-07-31)
 

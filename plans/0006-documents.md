@@ -9,27 +9,30 @@ tags: [documents, drive, oauth, files, preview]
 tasks:
   - id: doc-model
     title: DocumentRef domain type + sqlite table + repository port
-    status: todo
+    status: done
   - id: store-port
     title: DocumentStore port (put/get/remove) with a local-disk implementation
-    status: todo
+    status: done
   - id: record-docs
     title: Documents section in every record panel — attach, list, open
-    status: todo
+    status: done
   - id: generated-pdfs
     title: Ticket PDFs stored as documents, each carrying its ticket lineage
-    status: todo
+    status: done
   - id: file-manager
     title: /files browser — table, filter, lineage chips, source badges
-    status: todo
+    status: done
   - id: preview
     title: Preview panel in the drawer for images and PDFs, download otherwise
-    status: todo
+    status: done
   - id: oauth
     title: Google OAuth (user consent, PKCE, loopback) + Settings connection surface
-    status: todo
+    status: done
   - id: drive-store
-    title: GoogleDriveStore implementing the port; link existing Drive files
+    title: GoogleDriveStore implementing the port (upload/download/delete)
+    status: done
+  - id: link-existing
+    title: Link existing Drive files (needs the Google Picker; not built)
     status: todo
 ---
 
@@ -107,6 +110,17 @@ everywhere it appears. Every document mutation writes an audit row like any othe
 `doc-model` → `store-port` → `record-docs` → `generated-pdfs` → `file-manager` → `preview`
 are all buildable and verifiable with the local store. `oauth` and `drive-store` follow and
 need a Google Cloud client id from the operator to verify end-to-end.
+
+## What is not done
+
+`linkDocument` exists in the service layer and the model carries a `link` source, but
+there is **no UI to link an existing Drive file**. Doing it properly needs the Google
+Picker, because `drive.file` deliberately cannot see files STEWARD did not create — the
+user has to hand each one over. Until that is built, "link" is reachable only in code.
+
+Live consent has not been exercised end to end: it needs a real Google Cloud client id.
+Everything up to the redirect is verified (consent URL, scope, PKCE challenge, state
+rejection, token refresh and disconnect against a fake token endpoint).
 
 ## Roadmap note
 

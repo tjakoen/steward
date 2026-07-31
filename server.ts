@@ -32,9 +32,10 @@ import { seedDemo } from './app/seed/demo.ts';
 import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
 import {
   esc, renderForm, customerSchema, clientSchema, customerRow, clientRow, personsLabel,
+  ticketSchema, ticketEditSchema, renderBoard, progressList,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
-import type { Customer } from './app/domain/types.ts';
+import type { Customer, Ticket } from './app/domain/types.ts';
 
 const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
 
@@ -82,7 +83,7 @@ const renderAppPage = (html: string) => renderPage(html);
 const servePage = makePageServer(bunRuntime, config.pagesDir, renderAppPage, PAGE_ASSETS, PAGE_HEAD);
 
 // Full-document layout for STEWARD's dynamic (data-driven) routes.
-const NAV = ['Home:/', 'Clients:/clients', 'Customers:/customers', 'Plans:/plans', 'Help:/help', 'Settings:/settings']
+const NAV = ['Home:/', 'Clients:/clients', 'Customers:/customers', 'Tickets:/tickets', 'Plans:/plans', 'Help:/help', 'Settings:/settings']
   .map((x) => { const [l, h] = x.split(':'); return `<a href="${h}">${l}</a>`; }).join('');
 function layout(title: string, body: string): Response {
   const html =
@@ -100,6 +101,25 @@ const customerValues = (c: Customer): Record<string, string> => ({
   given2: c.persons[1]?.given ?? '', family2: c.persons[1]?.family ?? '',
   email: c.email, phone: c.phone, notes: c.notes,
 });
+
+const ticketValues = (t: Ticket): Record<string, string> => ({
+  id: t.id, title: t.title, status: t.status,
+  summary: t.summary, nextAction: t.nextAction, waitingOn: t.waitingOn,
+});
+
+/** Resolve a ticket's customer label; caches the customer lookups per call. */
+function ticketLabeler(): (t: Ticket) => string {
+  const cache = new Map<string, string>();
+  return (t: Ticket) => {
+    let label = cache.get(t.customerId);
+    if (label === undefined) {
+      const c = services.repos.customers.get(t.customerId);
+      label = c ? personsLabel(c) : '';
+      cache.set(t.customerId, label);
+    }
+    return label;
+  };
+}
 
 // ---- MILL (help + changelog) ----
 const millCollections: MillCollection[] = [
@@ -238,6 +258,47 @@ const server = Bun.serve({
         if (!c) return new Response('Not found', { status: 404 });
         const clients = services.repos.clients.list();
         return new Response(renderForm(customerSchema(clients, 'customer.update'), 'edit', customerValues(c)),
+          { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      },
+    },
+
+    // --- Ticket surfaces (kanban board + detail) ---
+    '/tickets': {
+      GET: () => {
+        const tickets = services.repos.tickets.list();
+        const customers = services.repos.customers.list();
+        const board = renderBoard(tickets, ticketLabeler());
+        const form = customers.length
+          ? `<section><h2>New ticket</h2>${renderForm(ticketSchema(customers), 'create')}</section>`
+          : `<p class="muted">Create a customer first.</p>`;
+        return layout('Tickets', `<h1>Tickets</h1>${board}${form}`);
+      },
+    },
+    '/tickets/:id': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const t = services.repos.tickets.get(id);
+        if (!t) return new Response('Not found', { status: 404 });
+        const customer = services.repos.customers.get(t.customerId);
+        const who = customer ? personsLabel(customer) : '—';
+        return layout(t.title,
+          `<a href="/tickets">← Board</a><h1>${esc(t.title)}</h1>` +
+          `<p class="muted">${esc(t.ticketId)} · ${esc(who)} · ${esc(t.status)}</p>` +
+          `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` +
+          `<section><h2>Progress log</h2>${progressList(t)}` +
+          `<form class="fb" data-action="ticket.progress" data-mode="create">` +
+          `<input type="hidden" name="id" value="${esc(t.id)}" />` +
+          `<div class="form-row"><label for="f_update">Add update</label>` +
+          `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
+          `<div class="form-controls"><button type="submit">Log</button></div></form></section>`);
+      },
+    },
+    '/tickets/:id/edit': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const t = services.repos.tickets.get(id);
+        if (!t) return new Response('Not found', { status: 404 });
+        return new Response(renderForm(ticketEditSchema(), 'edit', ticketValues(t)),
           { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       },
     },

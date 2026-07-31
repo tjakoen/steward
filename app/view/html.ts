@@ -1,7 +1,10 @@
 // Server-side HTML builders. No template engine — plain, escaped strings.
 // FormBuilder lives here: one schema-driven renderer with create/edit/view modes.
 
-import type { Client, Customer } from '../domain/types.ts';
+import type {
+  Client, Customer, Ticket, ProgressEntry,
+} from '../domain/types.ts';
+import { TICKET_STATUSES } from '../domain/types.ts';
 
 export function esc(s: unknown): string {
   return String(s ?? '')
@@ -146,4 +149,79 @@ export function clientRow(c: Client): string {
     `<strong>${esc(c.name)}</strong><span class="muted">${esc(c.code)}</span>` +
     `</li>`
   );
+}
+
+// ---- tickets ---------------------------------------------------------------
+
+/** Schema for creating a ticket: customer picker + the free-text fields. */
+export function ticketSchema(customers: Customer[], action = 'ticket.create'): FormSchema {
+  return {
+    action,
+    idField: 'id',
+    fields: [
+      { name: 'customerId', label: 'Customer', type: 'select',
+        options: customers.map((c) => ({ value: c.id, label: personsLabel(c) })) },
+      { name: 'title', label: 'Title', type: 'text', placeholder: 'Annual Review' },
+      { name: 'summary', label: 'Summary', type: 'textarea' },
+      { name: 'nextAction', label: 'Next action', type: 'text' },
+      { name: 'waitingOn', label: 'Waiting on', type: 'text', placeholder: 'optional' },
+    ],
+  };
+}
+
+/** Schema for editing a ticket: no customer move, adds the status select. */
+export function ticketEditSchema(action = 'ticket.update'): FormSchema {
+  return {
+    action,
+    idField: 'id',
+    fields: [
+      { name: 'title', label: 'Title', type: 'text' },
+      { name: 'status', label: 'Status', type: 'select',
+        options: TICKET_STATUSES.map((s) => ({ value: s, label: s })) },
+      { name: 'summary', label: 'Summary', type: 'textarea' },
+      { name: 'nextAction', label: 'Next action', type: 'text' },
+      { name: 'waitingOn', label: 'Waiting on', type: 'text' },
+    ],
+  };
+}
+
+/** One draggable ticket card. Lives inside a status column. */
+export function ticketCard(t: Ticket, customerLabel: string): string {
+  const waiting = t.status === 'Waiting' && t.waitingOn
+    ? `<span class="muted">waiting: ${esc(t.waitingOn)}</span>` : '';
+  return (
+    `<li class="card" data-surface="ticket:${esc(t.id)}" draggable="true"` +
+    ` data-ticket-id="${esc(t.id)}" data-status="${esc(t.status)}">` +
+    `<a href="/tickets/${esc(t.id)}"><strong>${esc(t.title)}</strong></a>` +
+    `<span class="muted mono">${esc(t.ticketId)}</span>` +
+    `<span class="muted">${esc(customerLabel)}</span>${waiting}` +
+    `</li>`
+  );
+}
+
+/** Kanban board: one column per status, each column a drop zone. */
+export function renderBoard(tickets: Ticket[], labelOf: (t: Ticket) => string): string {
+  const byStatus: Record<string, Ticket[]> = {};
+  for (const t of tickets) (byStatus[t.status] ??= []).push(t);
+  const cols = TICKET_STATUSES.map((s) => {
+    const list = byStatus[s] ?? [];
+    const cards = list.map((t) => ticketCard(t, labelOf(t))).join('');
+    return (
+      `<div class="board-col" data-status="${esc(s)}">` +
+      `<h2>${esc(s)} <span class="count">${list.length}</span></h2>` +
+      `<ul class="cards" data-surface="ticket-col:${esc(s)}">${cards}</ul>` +
+      `</div>`
+    );
+  }).join('');
+  return `<div class="board">${cols}</div>`;
+}
+
+/** One progress-log entry, as a list item (appended live via SSE). */
+export function progressItem(e: ProgressEntry): string {
+  return `<li><time>${esc(e.date)}</time> ${esc(e.update)}</li>`;
+}
+
+export function progressList(t: Ticket): string {
+  const items = t.progressLog.map(progressItem).join('') || '<li class="muted">No entries yet.</li>';
+  return `<ul class="progress" data-surface="ticket-progress:${esc(t.id)}">${items}</ul>`;
 }

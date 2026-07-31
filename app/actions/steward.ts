@@ -4,12 +4,16 @@
 
 import type { RenderOp } from '@tjakoen/grain/ai/contract.ts';
 import type { Services } from '../services/index.ts';
-import type { Person } from '../domain/types.ts';
-import { customerRow, clientRow, personsLabel } from '../view/html.ts';
+import type { Person, TicketStatus } from '../domain/types.ts';
+import { TICKET_STATUSES } from '../domain/types.ts';
+import {
+  customerRow, clientRow, personsLabel, ticketCard, progressItem,
+} from '../view/html.ts';
 
 export const STEWARD_ACTIONS = [
   'client.create', 'client.update',
   'customer.create', 'customer.update', 'customer.search',
+  'ticket.create', 'ticket.update', 'ticket.status', 'ticket.progress',
 ] as const;
 export type StewardAction = (typeof STEWARD_ACTIONS)[number];
 
@@ -50,10 +54,75 @@ const op = (target: string, kind: RenderOp['op'], html: string): RenderOp => ({
   target, op: kind, html, provenance: 'user', commit: 'committed',
 });
 
+const today = (): string => new Date().toISOString().slice(0, 10);
+
 export function dispatchSteward(services: Services, intent: StewardIntent): StewardResult {
   const { payload: p, actor } = intent;
+  const customerLabel = (customerId: string): string => {
+    const c = services.repos.customers.get(customerId);
+    return c ? personsLabel(c) : '';
+  };
   try {
     switch (intent.action) {
+      case 'ticket.create': {
+        const d = today();
+        const t = services.createTicket(
+          { customerId: require_(p.customerId, 'customerId'),
+            title: require_(p.title, 'title'),
+            dateInitiated: d, status: 'Not Commenced', dateLastUpdated: d,
+            waitingOn: str(p.waitingOn), waitingSince: '',
+            summary: str(p.summary), nextAction: str(p.nextAction),
+            progressLog: [{ date: d, update: 'Ticket created.' }], commRefs: [] },
+          actor,
+        );
+        return { ok: true,
+          ops: [op(`ticket-col:${t.status}`, 'append', ticketCard(t, customerLabel(t.customerId)))],
+          reply: `Created ticket ${t.ticketId}.`, data: t };
+      }
+      case 'ticket.update': {
+        const id = require_(p.id, 'id');
+        const cur = services.repos.tickets.get(id);
+        if (!cur) throw new Error(`ticket not found: ${id}`);
+        const status = str(p.status);
+        if (status && !(TICKET_STATUSES as readonly string[]).includes(status)) {
+          throw new Error(`invalid status: ${status}`);
+        }
+        const t = services.updateTicket(
+          id,
+          { title: str(p.title) || cur.title,
+            status: (status || cur.status) as TicketStatus,
+            summary: str(p.summary), nextAction: str(p.nextAction),
+            waitingOn: str(p.waitingOn), dateLastUpdated: today() },
+          actor,
+        );
+        return { ok: true, ops: [op(`ticket:${id}`, 'replace', ticketCard(t, customerLabel(t.customerId)))],
+          reply: `Updated ticket ${t.ticketId}.`, data: t };
+      }
+      case 'ticket.status': {
+        const id = require_(p.id, 'id');
+        const status = require_(p.status, 'status');
+        if (!(TICKET_STATUSES as readonly string[]).includes(status)) {
+          throw new Error(`invalid status: ${status}`);
+        }
+        const cur = services.repos.tickets.get(id);
+        if (!cur) throw new Error(`ticket not found: ${id}`);
+        const t = services.setTicketStatus(id, status as TicketStatus, actor);
+        const card = ticketCard(t, customerLabel(t.customerId));
+        return { ok: true, ops: [
+          op(`ticket:${id}`, 'remove', ''),
+          op(`ticket-col:${status}`, 'append', card),
+          op(`ticket:${id}`, 'flash', ''),
+        ], reply: `Moved ticket ${t.ticketId} to ${status}.`, data: t };
+      }
+      case 'ticket.progress': {
+        const id = require_(p.id, 'id');
+        const entry = { date: today(), update: require_(p.update, 'update') };
+        const t = services.addProgress(id, entry, actor);
+        return { ok: true, ops: [
+          op(`ticket-progress:${id}`, 'append', progressItem(entry)),
+          op(`ticket:${id}`, 'replace', ticketCard(t, customerLabel(t.customerId))),
+        ], reply: `Logged progress on ${t.ticketId}.`, data: t };
+      }
       case 'customer.create': {
         const c = services.createCustomer(
           { clientId: require_(p.clientId, 'clientId'), code: '', persons: personsFrom(p),

@@ -84,3 +84,90 @@ test('client.create stores branding and returns an append op', () => {
   expect(r.ops[0]!.target).toBe('client-list');
   expect(services.repos.clients.list().some((c) => c.branding.primaryColor === '#324a7d')).toBe(true);
 });
+
+// --- tickets ---------------------------------------------------------------
+
+function withCustomer() {
+  const { services, clientId } = ctx();
+  const created = dispatchSteward(services, {
+    action: 'customer.create', actor: 'human', session: 's',
+    payload: { clientId, given: 'Jane', family: 'Doe' },
+  });
+  return { services, customerId: (created.data as { id: string }).id };
+}
+
+test('ticket.create appends a card to its status column with a derived ticketId', () => {
+  const { services, customerId } = withCustomer();
+  const r = dispatchSteward(services, {
+    action: 'ticket.create', actor: 'human', session: 's',
+    payload: { customerId, title: 'Annual Review' },
+  });
+  expect(r.ok).toBe(true);
+  expect(r.ops[0]!.op).toBe('append');
+  expect(r.ops[0]!.target).toBe('ticket-col:Not Commenced');
+  const t = services.repos.tickets.list()[0]!;
+  expect(t.ticketId).toBe('TXDOEX0001');
+  expect(services.repos.audit.recent().some((a) => a.entity === 'ticket' && a.action === 'create')).toBe(true);
+});
+
+test('ticket.create requires a title', () => {
+  const { services, customerId } = withCustomer();
+  const r = dispatchSteward(services, {
+    action: 'ticket.create', actor: 'human', session: 's',
+    payload: { customerId }, // no title
+  });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('title');
+  expect(services.repos.tickets.list().length).toBe(0);
+});
+
+test('ticket.status moves the card (remove + append + flash) and persists', () => {
+  const { services, customerId } = withCustomer();
+  const created = dispatchSteward(services, {
+    action: 'ticket.create', actor: 'human', session: 's',
+    payload: { customerId, title: 'Review' },
+  });
+  const id = (created.data as { id: string }).id;
+  const r = dispatchSteward(services, {
+    action: 'ticket.status', actor: 'human', session: 's',
+    payload: { id, status: 'In Progress' },
+  });
+  expect(r.ok).toBe(true);
+  expect(r.ops.map((o) => o.op)).toEqual(['remove', 'append', 'flash']);
+  expect(r.ops[1]!.target).toBe('ticket-col:In Progress');
+  expect(services.repos.tickets.get(id)!.status).toBe('In Progress');
+});
+
+test('ticket.status rejects an unknown status, no write', () => {
+  const { services, customerId } = withCustomer();
+  const created = dispatchSteward(services, {
+    action: 'ticket.create', actor: 'human', session: 's',
+    payload: { customerId, title: 'Review' },
+  });
+  const id = (created.data as { id: string }).id;
+  const r = dispatchSteward(services, {
+    action: 'ticket.status', actor: 'human', session: 's',
+    payload: { id, status: 'Bogus' },
+  });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('invalid status');
+  expect(services.repos.tickets.get(id)!.status).toBe('Not Commenced');
+});
+
+test('ticket.progress appends a dated entry and grows the log', () => {
+  const { services, customerId } = withCustomer();
+  const created = dispatchSteward(services, {
+    action: 'ticket.create', actor: 'human', session: 's',
+    payload: { customerId, title: 'Review' },
+  });
+  const id = (created.data as { id: string }).id;
+  const r = dispatchSteward(services, {
+    action: 'ticket.progress', actor: 'human', session: 's',
+    payload: { id, update: 'Called client, left message.' },
+  });
+  expect(r.ok).toBe(true);
+  expect(r.ops[0]!.target).toBe(`ticket-progress:${id}`);
+  const log = services.repos.tickets.get(id)!.progressLog;
+  expect(log.length).toBe(2); // creation entry + this one
+  expect(log[1]!.update).toContain('left message');
+});

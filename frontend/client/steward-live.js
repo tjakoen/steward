@@ -24,6 +24,16 @@ function applyOp(o) {
       if (t) { t.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 350 }); }
       break;
   }
+  refreshBoardCounts();
+}
+
+// Recompute kanban column counts from the DOM after every op (moves change them).
+function refreshBoardCounts() {
+  document.querySelectorAll('.board-col').forEach((col) => {
+    const count = col.querySelector('.count');
+    const cards = col.querySelector('.cards');
+    if (count && cards) count.textContent = String(cards.children.length);
+  });
 }
 
 const es = new EventSource('/stream?session=' + session);
@@ -70,11 +80,51 @@ document.addEventListener('click', async (e) => {
   const t = e.target;
   if (!(t instanceof HTMLElement)) return;
   if (t.hasAttribute('data-form-edit')) {
-    const host = document.querySelector('[data-surface="customer-detail"]');
+    const host = t.closest('[data-surface$="-detail"]');
     if (host) host.innerHTML = await (await fetch(location.pathname + '/edit')).text();
   } else if (t.hasAttribute('data-form-cancel')) {
     location.reload();
   }
+});
+
+// --- Kanban drag: drop a card on a column → ticket.status intent -------------
+function postIntent(action, payload) {
+  return fetch('/intent', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session, screen: location.pathname, surface: 'screen', action, payload }),
+  });
+}
+
+let dragId = null;
+document.addEventListener('dragstart', (e) => {
+  const card = e.target instanceof HTMLElement ? e.target.closest('.card[draggable]') : null;
+  if (!card) return;
+  dragId = card.dataset.ticketId;
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  card.classList.add('dragging');
+});
+document.addEventListener('dragend', (e) => {
+  if (e.target instanceof HTMLElement) e.target.classList.remove('dragging');
+  dragId = null;
+});
+document.addEventListener('dragover', (e) => {
+  const col = e.target instanceof HTMLElement ? e.target.closest('.board-col') : null;
+  if (col && dragId) { e.preventDefault(); col.classList.add('drop-target'); }
+});
+document.addEventListener('dragleave', (e) => {
+  const col = e.target instanceof HTMLElement ? e.target.closest('.board-col') : null;
+  if (col) col.classList.remove('drop-target');
+});
+document.addEventListener('drop', (e) => {
+  const col = e.target instanceof HTMLElement ? e.target.closest('.board-col') : null;
+  if (!col || !dragId) return;
+  e.preventDefault();
+  col.classList.remove('drop-target');
+  const status = col.dataset.status;
+  const card = document.querySelector(`[data-surface="ticket:${CSS.escape(dragId)}"]`);
+  // No-op if dropped on the same column; server (SSE) performs the real move.
+  if (status && card && card.dataset.status !== status) postIntent('ticket.status', { id: dragId, status });
+  dragId = null;
 });
 
 // Live search: type in the query box → customer.search intent → list replaced over SSE.

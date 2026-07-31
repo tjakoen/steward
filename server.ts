@@ -36,6 +36,8 @@ import {
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
 import type { Customer, Ticket } from './app/domain/types.ts';
+import { renderTicketDocument } from './app/view/pdf.ts';
+import { printToPdf, closeBrowser } from './app/pdf/print.ts';
 
 const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
 
@@ -283,7 +285,8 @@ const server = Bun.serve({
         const who = customer ? personsLabel(customer) : '—';
         return layout(t.title,
           `<a href="/tickets">← Board</a><h1>${esc(t.title)}</h1>` +
-          `<p class="muted">${esc(t.ticketId)} · ${esc(who)} · ${esc(t.status)}</p>` +
+          `<p class="muted">${esc(t.ticketId)} · ${esc(who)} · ${esc(t.status)} · ` +
+          `<a href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">Download PDF</a></p>` +
           `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` +
           `<section><h2>Progress log</h2>${progressList(t)}` +
           `<form class="fb" data-action="ticket.progress" data-mode="create">` +
@@ -291,6 +294,29 @@ const server = Bun.serve({
           `<div class="form-row"><label for="f_update">Add update</label>` +
           `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
           `<div class="form-controls"><button type="submit">Log</button></div></form></section>`);
+      },
+    },
+    '/tickets/:id/pdf': {
+      GET: async (req: Request) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const t = services.repos.tickets.get(id);
+        if (!t) return new Response('Not found', { status: 404 });
+        // Read-only render — not a mutation, so no /intent, no audit row.
+        const customer = services.repos.customers.get(t.customerId);
+        const client = customer ? services.repos.clients.get(customer.clientId) : null;
+        try {
+          const bytes = await printToPdf(renderTicketDocument(t, customer, client));
+          // Cast: TS's typed-array generic doesn't unify with the DOM BodyInit union.
+          return new Response(bytes as unknown as BodyInit, {
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `inline; filename="${t.ticketId}.pdf"`,
+            },
+          });
+        } catch (e) {
+          console.error('[/tickets/:id/pdf]', e);
+          return new Response('PDF generation failed', { status: 502 });
+        }
       },
     },
     '/tickets/:id/edit': {
@@ -331,3 +357,8 @@ const server = Bun.serve({
 });
 
 console.log(`STEWARD → http://localhost:${server.port}`);
+
+// Release the headless-Chrome singleton (0004) on shutdown.
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => { void closeBrowser().finally(() => process.exit(0)); });
+}

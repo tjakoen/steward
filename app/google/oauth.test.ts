@@ -134,3 +134,52 @@ test('the code exchange sends the verifier, and a rejection surfaces', async () 
   expect(body).toContain('code_verifier=the-verifier');
   expect(body).toContain('grant_type=authorization_code');
 });
+
+test('the connected account is read from Drive, not an email scope endpoint', async () => {
+  const settings = memorySettings();
+  const urls: string[] = [];
+  const auth = makeGoogleAuth(settings, cfg, (async (url: string) => {
+    urls.push(url);
+    if (url.includes('/token')) {
+      return new Response(JSON.stringify({ access_token: 'at', refresh_token: 'rt', expires_in: 3600 }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ user: { emailAddress: 'me@example.com' } }), { status: 200 });
+  }) as unknown as typeof fetch);
+
+  await auth.completeLogin('code', 'verifier');
+  expect(settings.get('google.account')).toBe('me@example.com');
+  expect(urls.some((u) => u.includes('/drive/v3/about'))).toBe(true);
+  expect(urls.some((u) => u.includes('userinfo'))).toBe(false);
+});
+
+test('a failure to name the account does not break the connection', async () => {
+  const settings = memorySettings();
+  const auth = makeGoogleAuth(settings, cfg, (async (url: string) => {
+    if (url.includes('/token')) {
+      return new Response(JSON.stringify({ access_token: 'at', refresh_token: 'rt', expires_in: 3600 }), { status: 200 });
+    }
+    throw new Error('network down');
+  }) as unknown as typeof fetch);
+
+  await auth.completeLogin('code', 'verifier');
+  expect(auth.status().connected).toBe(true);
+  expect(settings.get('google.account')).toBeNull();
+});
+
+test('ensureAccount backfills a connection made before we asked, then stops asking', async () => {
+  const settings = memorySettings({
+    'google.refresh_token': 'rt',
+    'google.access_token': 'at',
+    'google.access_expires_at': String(Date.now() + 600_000),
+  });
+  let aboutCalls = 0;
+  const auth = makeGoogleAuth(settings, cfg, (async () => {
+    aboutCalls++;
+    return new Response(JSON.stringify({ user: { emailAddress: 'me@example.com' } }), { status: 200 });
+  }) as unknown as typeof fetch);
+
+  await auth.ensureAccount();
+  expect(settings.get('google.account')).toBe('me@example.com');
+  await auth.ensureAccount(); // already known — must not call again
+  expect(aboutCalls).toBe(1);
+});

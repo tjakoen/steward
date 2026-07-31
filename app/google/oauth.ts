@@ -17,7 +17,10 @@ import type { SettingsRepository } from '../repo/ports.ts';
 export const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
-const USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v2/userinfo';
+// Who is connected. Deliberately NOT the userinfo endpoint: that needs an
+// email/openid scope we don't ask for, whereas Drive will name its own owner
+// under the drive.file scope we already hold.
+const DRIVE_ABOUT_ENDPOINT = 'https://www.googleapis.com/drive/v3/about?fields=user';
 
 const KEY = {
   refresh: 'google.refresh_token',
@@ -107,6 +110,18 @@ export function makeGoogleAuth(
 ) {
   const now = () => Date.now();
 
+  /** Record which account is connected. A nicety — never fatal if it fails. */
+  const rememberAccount = async (accessToken: string): Promise<void> => {
+    try {
+      const res = await fetchImpl(DRIVE_ABOUT_ENDPOINT, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const about = (await res.json()) as { user?: { emailAddress?: string; displayName?: string } };
+      const who = about.user?.emailAddress ?? about.user?.displayName;
+      if (who) settings.set(KEY.account, who);
+    } catch { /* the connection works regardless of whether we can name it */ }
+  };
+
   return {
     scope: GOOGLE_SCOPE,
 
@@ -136,14 +151,18 @@ export function makeGoogleAuth(
       if (token.access_token) {
         settings.set(KEY.access, token.access_token);
         settings.set(KEY.expires, String(now() + (token.expires_in ?? 3600) * 1000));
-        try {
-          const who = await fetchImpl(USERINFO_ENDPOINT, {
-            headers: { Authorization: `Bearer ${token.access_token}` },
-          });
-          const info = (await who.json()) as { email?: string };
-          if (info.email) settings.set(KEY.account, info.email);
-        } catch { /* the address is a nicety; the connection still works */ }
+        await rememberAccount(token.access_token);
       }
+    },
+
+    /**
+     * Backfill the connected account when it isn't known yet — e.g. a
+     * connection made before we knew how to ask. Cheap no-op once set.
+     */
+    async ensureAccount(): Promise<void> {
+      if (!settings.get(KEY.refresh) || settings.get(KEY.account)) return;
+      const token = await this.accessToken();
+      if (token) await rememberAccount(token);
     },
 
     /**

@@ -90,7 +90,11 @@
   color: var(--color-muted, #6E6C64); font-size: .95rem; pointer-events: none;
 }
 
+/* The pane is a flex column ONLY so the kanban board can stretch to fill it.
+   Everything else must keep its natural height — without this, a tall page
+   (Settings) gets its panels squeezed and their contents clipped. */
 .pane { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6, 1.5rem); display: flex; flex-direction: column; }
+.pane > *:not(.board) { flex: none; }
 .pane > :first-child { margin-top: 0; }
 
 /* ---- Buttons (shared) ---------------------------------------------------- */

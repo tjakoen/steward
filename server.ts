@@ -874,8 +874,9 @@ const server = Bun.serve({
         { path: '/' }),
     },
     '/settings': {
-      GET: (req: Request) => {
+      GET: async (req: Request) => {
         const notice = new URL(req.url).searchParams.get('google');
+        await googleAuth.ensureAccount(); // names an older connection, once
         const g = googleAuth.status();
         // Say plainly what is true: not configured, configured but not
         // connected, or connected as someone.

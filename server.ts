@@ -27,7 +27,9 @@ import { config } from './config.ts';
 import { renderPage } from './render.ts';
 import { db } from './app/repo/db.ts';
 import { sqliteRepositories } from './app/repo/sqlite.ts';
-import { makeServices } from './app/services/index.ts';
+import { makeServices, type DocumentStores } from './app/services/index.ts';
+import { makeGoogleAuth, makeVerifier, challengeFor, authUrl, GOOGLE_SCOPE } from './app/google/oauth.ts';
+import { GoogleDriveStore } from './app/google/drive.ts';
 import { makeStewardReasoner } from './app/ai/reasoner.ts';
 import { seedDemo } from './app/seed/demo.ts';
 import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
@@ -38,7 +40,7 @@ import {
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
 import type { AuditEntity, Client, Customer, DocumentRef, Ticket } from './app/domain/types.ts';
-import { LocalDocumentStore, mimeFor, type DocumentStore } from './app/docs/store.ts';
+import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
 
@@ -46,11 +48,27 @@ const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
 
 // ---- storage + services ----
 db(); // ensure schema exists
-// Documents default to local disk: the app must work before (and without) a
-// Google account. A connected Drive swaps this out behind the same port (0006).
+const repos = sqliteRepositories();
+
+// Google connection (user consent, PKCE). Loopback redirect must match what is
+// registered on the OAuth client — hence 127.0.0.1 and this server's port.
+const googleAuth = makeGoogleAuth(repos.settings, {
+  clientId: config.google.clientId,
+  clientSecret: config.google.clientSecret,
+  redirectUri: `http://127.0.0.1:${config.port}${config.google.redirectPath}`,
+});
+
+// Documents: local disk until an account is connected, Drive afterwards. Reads
+// route by the store each document RECORDS, so connecting or disconnecting
+// Drive never strands files already written somewhere else.
 await mkdir(config.docsDir, { recursive: true });
-const documentStore: DocumentStore = new LocalDocumentStore(config.docsDir);
-const services = makeServices(sqliteRepositories(), documentStore);
+const localStore = new LocalDocumentStore(config.docsDir);
+const driveStore = new GoogleDriveStore(googleAuth, config.google.folderName);
+const documentStores: DocumentStores = {
+  active: () => (googleAuth.status().connected ? driveStore : localStore),
+  forKind: (kind) => (kind === 'drive' ? driveStore : localStore),
+};
+const services = makeServices(repos, documentStores);
 
 // ---- GRAIN door ----
 const stream: Stream = createStream();
@@ -185,6 +203,12 @@ function shell(title: string, body: string, opts: ShellOpts): string {
 function layout(title: string, body: string, opts: ShellOpts): Response {
   return new Response(shell(title, body, opts), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
+
+/**
+ * The in-flight OAuth login. One at a time, held in memory only: the verifier
+ * must never be persisted or sent anywhere, and a restart should invalidate it.
+ */
+let pendingLogin: { verifier: string; state: string; at: number } | null = null;
 
 const customerValues = (c: Customer): Record<string, string> => ({
   id: c.id, clientId: c.clientId,
@@ -673,6 +697,55 @@ const server = Bun.serve({
       },
     },
 
+    // --- Google connection (OAuth: user consent, PKCE, loopback) ---
+    '/oauth/google/start': {
+      GET: async () => {
+        if (!config.google.clientId) {
+          return new Response('No Google client id configured — set GOOGLE_CLIENT_ID.', { status: 400 });
+        }
+        // The verifier and state live server-side for one exchange only; the
+        // verifier never travels, which is the point of PKCE.
+        const verifier = makeVerifier();
+        const state = makeVerifier().slice(0, 32);
+        pendingLogin = { verifier, state, at: Date.now() };
+        return Response.redirect(
+          authUrl({
+            clientId: config.google.clientId,
+            clientSecret: config.google.clientSecret,
+            redirectUri: `http://127.0.0.1:${config.port}${config.google.redirectPath}`,
+          }, await challengeFor(verifier), state),
+          302,
+        );
+      },
+    },
+    '/oauth/google/callback': {
+      GET: async (req: Request) => {
+        const url = new URL(req.url);
+        const error = url.searchParams.get('error');
+        if (error) return backTo(`/settings?google=${encodeURIComponent(error)}`);
+
+        const code = url.searchParams.get('code') ?? '';
+        const state = url.searchParams.get('state') ?? '';
+        const pending = pendingLogin;
+        pendingLogin = null; // single use, whatever happens next
+
+        // Reject a callback we didn't initiate, or one that arrived too late.
+        if (!pending || !code || state !== pending.state || Date.now() - pending.at > 10 * 60_000) {
+          return backTo('/settings?google=invalid_state');
+        }
+        try {
+          await googleAuth.completeLogin(code, pending.verifier);
+        } catch (e) {
+          console.error('[oauth/google]', e);
+          return backTo('/settings?google=exchange_failed');
+        }
+        return backTo('/settings?google=connected');
+      },
+    },
+    '/oauth/google/disconnect': {
+      POST: () => { googleAuth.disconnect(); return backTo('/settings?google=disconnected'); },
+    },
+
     // --- Files (documents: the manager, previews, bytes) ---
     '/files': {
       GET: () => {
@@ -796,8 +869,35 @@ const server = Bun.serve({
         { path: '/' }),
     },
     '/settings': {
-      GET: () => layout('Settings',
+      GET: (req: Request) => {
+        const notice = new URL(req.url).searchParams.get('google');
+        const g = googleAuth.status();
+        // Say plainly what is true: not configured, configured but not
+        // connected, or connected as someone.
+        const state = !g.configured
+          ? `<p class="muted">No OAuth client id configured. Create a Google Cloud project with a ` +
+            `<strong>Desktop app</strong> OAuth client, then set <code>GOOGLE_CLIENT_ID</code> and ` +
+            `<code>GOOGLE_CLIENT_SECRET</code> before starting STEWARD.</p>` +
+            `<p class="muted">Register this redirect URI on the client: ` +
+            `<code>http://127.0.0.1:${config.port}${config.google.redirectPath}</code></p>`
+          : g.connected
+            ? `<p>Connected${g.account ? ` as <strong>${esc(g.account)}</strong>` : ''}. ` +
+              `New documents are stored in the <strong>${esc(config.google.folderName)}</strong> folder of that Drive.</p>` +
+              `<form method="post" action="/oauth/google/disconnect"><div class="form-controls">` +
+              `<button type="submit">Disconnect</button></div></form>` +
+              `<p class="muted">Disconnecting only forgets the connection here. Files already in Drive stay in Drive, ` +
+              `and files already on this machine keep working.</p>`
+            : `<p class="muted">Not connected. Documents are stored locally on this machine.</p>` +
+              `<p><a class="btn primary" href="/oauth/google/start">Connect Google Drive</a></p>` +
+              `<p class="muted">STEWARD asks only for <code>${esc(GOOGLE_SCOPE.split('/').pop() ?? '')}</code> access — ` +
+              `the files it creates, not the rest of your Drive.</p>`;
+        const noticeHtml = notice
+          ? `<p class="form-status" data-ok="${notice === 'connected' || notice === 'disconnected'}">${esc(notice.replace(/_/g, ' '))}</p>`
+          : '';
+        return layout('Settings',
         `<div class="page-head"><h1>Settings</h1></div>` +
+        `<section class="panel"><div class="panel__head"><h2>Google Drive</h2></div><div class="panel__body">` +
+        noticeHtml + state + `</div></section>` +
         `<section class="panel"><div class="panel__head"><h2>Appearance</h2></div><div class="panel__body">` +
         `<p class="muted">Theme is a GRAIN token re-skin, saved to this browser.</p>` +
         `<div class="form-row"><label>Mode</label><div class="form-controls">` +
@@ -825,7 +925,8 @@ const server = Bun.serve({
             out.textContent = JSON.stringify(await r.json(), null, 2);
           });
         </script></div></section>`,
-        { path: '/settings' }),
+        { path: '/settings' });
+      },
     },
 
     // --- packaged assets ---

@@ -20,6 +20,7 @@ import type {
   NewDocument,
   NewTicket,
   Repositories,
+  SettingsRepository,
   TicketRepository,
 } from './ports.ts';
 
@@ -272,6 +273,28 @@ class SqliteDocumentRepository implements DocumentRepository {
   }
 }
 
+// --- settings ---------------------------------------------------------------
+
+class SqliteSettingsRepository implements SettingsRepository {
+  constructor(private d: Database) {}
+
+  get(key: string): string | null {
+    return this.d.query<{ value: string }, [string]>(
+      'SELECT value FROM settings WHERE key = ?',
+    ).get(key)?.value ?? null;
+  }
+  set(key: string, value: string): void {
+    this.d.run(
+      `INSERT INTO settings (key,value) VALUES (?,?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [key, value],
+    );
+  }
+  remove(key: string): void {
+    this.d.run('DELETE FROM settings WHERE key = ?', [key]);
+  }
+}
+
 // --- factory ---------------------------------------------------------------
 
 export function sqliteRepositories(database: Database = db()): Repositories {
@@ -281,5 +304,6 @@ export function sqliteRepositories(database: Database = db()): Repositories {
     tickets: new SqliteTicketRepository(database),
     audit: new SqliteAuditRepository(database),
     documents: new SqliteDocumentRepository(database),
+    settings: new SqliteSettingsRepository(database),
   };
 }

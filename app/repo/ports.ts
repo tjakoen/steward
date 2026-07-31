@@ -59,10 +59,18 @@ export interface DocumentRepository {
   remove(id: string): void;
 }
 
+/** Local key/value store. Also holds OAuth tokens — treat values as secret. */
+export interface SettingsRepository {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  remove(key: string): void;
+}
+
 export interface Repositories {
   clients: ClientRepository;
   customers: CustomerRepository;
   tickets: TicketRepository;
   audit: AuditRepository;
   documents: DocumentRepository;
+  settings: SettingsRepository;
 }

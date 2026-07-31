@@ -3,16 +3,27 @@
 
 import type { Repositories, NewClient, NewCustomer, NewTicket } from '../repo/ports.ts';
 import type {
-  AuditEntity, Client, Customer, DocumentRef, Ticket, TicketStatus, ProgressEntry,
+  AuditEntity, Client, Customer, DocumentRef, DocumentStorage,
+  Ticket, TicketStatus, ProgressEntry,
 } from '../domain/types.ts';
 import type { DocumentStore } from '../docs/store.ts';
+
+/**
+ * Where documents are written now, and where existing ones can be read from.
+ * A document records the store it was written to, so connecting (or
+ * disconnecting) Drive later never strands files already on disk.
+ */
+export interface DocumentStores {
+  active(): DocumentStore;
+  forKind(kind: DocumentStorage): DocumentStore | null;
+}
 
 export interface Actor {
   /** "human" | "ai" | a named operator — recorded on audit rows. */
   actor: string;
 }
 
-export function makeServices(repos: Repositories, store?: DocumentStore) {
+export function makeServices(repos: Repositories, stores?: DocumentStores) {
   const audit = (
     entity: 'client' | 'customer' | 'ticket',
     entityId: string,
@@ -22,9 +33,12 @@ export function makeServices(repos: Repositories, store?: DocumentStore) {
   ) => repos.audit.append({ entity, entityId, action, actor, diff: JSON.stringify(diff) });
 
   const requireStore = (): DocumentStore => {
-    if (!store) throw new Error('no document store configured');
-    return store;
+    if (!stores) throw new Error('no document store configured');
+    return stores.active();
   };
+  /** The store a given document was written to — not necessarily the active one. */
+  const storeFor = (doc: DocumentRef): DocumentStore | null =>
+    stores ? stores.forKind(doc.storage) : null;
 
   return {
     repos,
@@ -135,13 +149,17 @@ export function makeServices(repos: Repositories, store?: DocumentStore) {
     /** Read a document's bytes back. Links have none — they live elsewhere. */
     async readDocument(doc: DocumentRef): Promise<Uint8Array | null> {
       if (doc.source === 'link' || !doc.storageId) return null;
-      return requireStore().get(doc.storageId);
+      const s = storeFor(doc);
+      // The document's store may be unavailable now (Drive disconnected); say
+      // so by returning nothing rather than reading from the wrong place.
+      return s ? s.get(doc.storageId) : null;
     },
 
     async removeDocument(id: string, by: string): Promise<void> {
       const doc = repos.documents.get(id);
       if (!doc) return;
-      if (doc.source !== 'link' && doc.storageId && store) await store.remove(doc.storageId);
+      const s = storeFor(doc);
+      if (doc.source !== 'link' && doc.storageId && s) await s.remove(doc.storageId);
       repos.documents.remove(id);
       audit(doc.entity, doc.entityId, 'update', by, { removedDocument: doc.name });
     },

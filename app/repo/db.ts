@@ -110,6 +110,13 @@ function migrate(d: Database): void {
       createdBy TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_documents_entity ON documents(entity, entityId);
+
+    -- Local key/value settings. Also holds OAuth tokens, which are
+    -- CREDENTIALS: never audited, never rendered, never leave this machine.
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
 

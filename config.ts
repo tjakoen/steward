@@ -38,4 +38,17 @@ export const config = {
   // Consumer-declared theme flavors (list[0] = default → the hueless Sourdough
   // :root, selected by dropping the attribute). GRAIN hardcodes none.
   themes: 'sourdough baguette brioche',
+
+  // Google OAuth (installed-app flow). The client id/secret identify the APP,
+  // not the operator — one registration serves every install, and each person
+  // signs in with their own account. Desktop client secrets are not truly
+  // secret (Google says so); PKCE is what protects the exchange.
+  google: {
+    clientId: Bun.env.GOOGLE_CLIENT_ID ?? '',
+    clientSecret: Bun.env.GOOGLE_CLIENT_SECRET ?? '',
+    /** Must match a redirect URI registered on the OAuth client. */
+    redirectPath: '/oauth/google/callback',
+    /** Folder created in the operator's own Drive to hold STEWARD's files. */
+    folderName: Bun.env.GOOGLE_DRIVE_FOLDER ?? 'STEWARD',
+  },
 } as const;

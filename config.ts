@@ -33,6 +33,7 @@ export const config = {
   fontsDir: join(GRAIN, 'fonts'),
   missingBindings: (isDev ? 'warn' : 'ignore') as 'ignore' | 'warn' | 'throw',
 
-  // Consumer-declared theme flavors (list[0] = default). GRAIN hardcodes none.
-  themes: 'baguette brioche',
+  // Consumer-declared theme flavors (list[0] = default → the hueless Sourdough
+  // :root, selected by dropping the attribute). GRAIN hardcodes none.
+  themes: 'sourdough baguette brioche',
 } as const;

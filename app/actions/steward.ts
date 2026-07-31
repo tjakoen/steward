@@ -144,7 +144,9 @@ export function dispatchSteward(services: Services, intent: StewardIntent): Stew
       }
       case 'customer.search': {
         const results = services.searchCustomers(str(p.query));
-        const html = `<ul class="rows" data-surface="customer-list">${results.map(customerRow).join('')}</ul>`;
+        const rows = results.map(customerRow).join('')
+          || `<tr class="empty"><td colspan="3">No matches.</td></tr>`;
+        const html = `<tbody class="rows" data-surface="customer-list">${rows}</tbody>`;
         return { ok: true, ops: [op('customer-list', 'replace', html)], data: results };
       }
       case 'client.create': {

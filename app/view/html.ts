@@ -134,20 +134,22 @@ export function personsLabel(c: Customer): string {
 
 export function customerRow(c: Customer): string {
   return (
-    `<li class="row" data-surface="customer:${esc(c.id)}">` +
-    `<a href="/customers/${esc(c.id)}"><strong>${esc(personsLabel(c))}</strong></a>` +
-    `<span class="muted">${esc(c.code)}</span>` +
-    `<span class="muted">${esc(c.email)}</span>` +
-    `</li>`
+    `<tr class="row" data-surface="customer:${esc(c.id)}" data-href="/customers/${esc(c.id)}">` +
+    `<td><a href="/customers/${esc(c.id)}">${esc(personsLabel(c))}</a></td>` +
+    `<td class="mono">${esc(c.code)}</td>` +
+    `<td class="sub">${esc(c.email)}</td>` +
+    `</tr>`
   );
 }
 
 export function clientRow(c: Client): string {
+  const info = c.branding.companyInfo ? esc(c.branding.companyInfo) : '<span class="sub">—</span>';
   return (
-    `<li class="row" data-surface="client:${esc(c.id)}">` +
-    `<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span>` +
-    `<strong>${esc(c.name)}</strong><span class="muted">${esc(c.code)}</span>` +
-    `</li>`
+    `<tr class="row" data-surface="client:${esc(c.id)}">` +
+    `<td><span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="name">${esc(c.name)}</span></td>` +
+    `<td class="mono">${esc(c.code)}</td>` +
+    `<td class="sub">${info}</td>` +
+    `</tr>`
   );
 }
 

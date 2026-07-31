@@ -28,13 +28,45 @@ function applyOp(o) {
 }
 
 // Recompute kanban column counts from the DOM after every op (moves change them).
+// Counts VISIBLE cards so an active filter shows filtered totals.
 function refreshBoardCounts() {
   document.querySelectorAll('.board-col').forEach((col) => {
     const count = col.querySelector('.count');
     const cards = col.querySelector('.cards');
-    if (count && cards) count.textContent = String(cards.children.length);
+    if (count && cards) count.textContent = String([...cards.children].filter((c) => !c.hidden).length);
   });
 }
+
+// ---- slide-in drawer (New / Edit forms) ------------------------------------
+const drawer = () => document.getElementById('app-drawer');
+function openDrawer(title) {
+  const d = drawer(); if (!d) return;
+  if (title) { const h = d.querySelector('[data-drawer-title]'); if (h) h.textContent = title; }
+  d.hidden = false;
+  const f = d.querySelector('input, select, textarea'); if (f) f.focus();
+}
+function closeDrawer() { const d = drawer(); if (d) d.hidden = true; }
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return;
+  if (t.closest('[data-drawer-open]')) { openDrawer(); return; }
+  if (t.closest('[data-drawer-close]') || t.classList.contains('drawer__backdrop')) { closeDrawer(); return; }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+// ---- instant client-side filter (topbar box filters a table body or board) -
+document.addEventListener('input', (e) => {
+  const inp = e.target;
+  if (!(inp instanceof HTMLElement) || !inp.hasAttribute('data-filter')) return;
+  const scope = document.querySelector(inp.getAttribute('data-filter'));
+  if (!scope) return;
+  const q = inp.value.trim().toLowerCase();
+  scope.querySelectorAll('tr.row, li.card').forEach((r) => {
+    r.hidden = q ? !r.textContent.toLowerCase().includes(q) : false;
+  });
+  refreshBoardCounts();
+});
 
 const es = new EventSource('/stream?session=' + session);
 es.addEventListener('op', (e) => {
@@ -60,6 +92,12 @@ async function submitForm(form) {
   if (res.status === 202) {
     status(form, 'Saved.', true);
     if (form.dataset.mode === 'create') form.reset();
+    // In the drawer: a create appends its row live over SSE — just close.
+    // An edit updates a detail surface the row op doesn't target — reload to reflect it.
+    if (form.closest('.drawer')) {
+      if (form.dataset.mode === 'edit') { location.reload(); return; }
+      closeDrawer();
+    }
   } else {
     let msg = 'Error ' + res.status;
     try { const b = await res.json(); if (b.error) msg = b.error; } catch { /* noop */ }
@@ -75,15 +113,26 @@ document.addEventListener('submit', (e) => {
   }
 });
 
-// FormBuilder view↔edit toggle: fetch the edit fragment, swap it in place.
+// Table rows with data-href navigate on click (but let real links/buttons win).
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLElement) || t.closest('a,button')) return;
+  const tr = t.closest('tr[data-href]');
+  if (tr) location.href = tr.getAttribute('data-href');
+});
+
+// FormBuilder view→edit: load the edit fragment into the drawer (not inline).
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (!(t instanceof HTMLElement)) return;
   if (t.hasAttribute('data-form-edit')) {
-    const host = t.closest('[data-surface$="-detail"]');
-    if (host) host.innerHTML = await (await fetch(location.pathname + '/edit')).text();
+    const body = drawer() && drawer().querySelector('[data-drawer-body]');
+    if (!body) return;
+    body.innerHTML = '<p class="muted">Loading…</p>';
+    openDrawer('Edit');
+    body.innerHTML = await (await fetch(location.pathname + '/edit')).text();
   } else if (t.hasAttribute('data-form-cancel')) {
-    location.reload();
+    closeDrawer();
   }
 });
 

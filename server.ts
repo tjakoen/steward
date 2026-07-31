@@ -79,7 +79,8 @@ const PAGE_HEAD =
 const PAGE_ASSETS =
   '<script type="module" src="/scripts/theme.js"></script>' +
   '<script type="module" src="/scripts/ai-dispatch.js"></script>' +
-  '<script type="module" src="/app/steward-live.js"></script>';
+  '<script type="module" src="/app/steward-live.js"></script>' +
+  '<script type="module" src="/app/steward-chat.js"></script>';
 
 const renderAppPage = (html: string) => renderPage(html);
 const servePage = makePageServer(bunRuntime, config.pagesDir, renderAppPage, PAGE_ASSETS, PAGE_HEAD);

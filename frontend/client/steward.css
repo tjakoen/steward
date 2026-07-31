@@ -72,3 +72,35 @@
 .progress li { font-size: 0.85rem; border-left: 2px solid var(--color-border, #ddd); padding-left: 0.6rem; }
 .progress time { opacity: 0.6; font-variant-numeric: tabular-nums; margin-right: 0.4rem; }
 @media (max-width: 48rem) { .board { grid-template-columns: 1fr 1fr; } }
+
+/* ---- AI assistant chat panel (0005) ---- */
+.chat-toggle {
+  position: fixed; bottom: 1rem; right: 1rem; z-index: 50;
+  padding: 0.55rem 0.9rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--color-border, #ccc); background: var(--color-accent, #1f4e5f); color: #fff;
+}
+.chat-panel {
+  position: fixed; bottom: 4rem; right: 1rem; z-index: 50;
+  display: flex; flex-direction: column; width: min(380px, calc(100vw - 2rem)); height: min(520px, 70vh);
+  border: 1px solid var(--color-border, #ccc); border-radius: 10px; overflow: hidden;
+  background: var(--color-surface, #fff); box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+}
+.chat-panel__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--color-border, #eee);
+}
+.chat-status { font-size: 0.75rem; color: var(--color-muted, #666); text-align: right; }
+.chat-log { flex: 1; overflow-y: auto; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.chat-log .chat-message { font-size: 0.9rem; line-height: 1.4; }
+.chat-log .chat-message[data-role="you"] { text-align: right; }
+.chat-log .chat-message__who { display: block; font-size: 0.7rem; color: var(--color-muted, #888); }
+.chat-composer { display: flex; gap: 0.4rem; padding: 0.5rem; border-top: 1px solid var(--color-border, #eee); }
+.chat-composer textarea {
+  flex: 1; resize: none; padding: 0.4rem 0.5rem; border: 1px solid var(--color-border, #ccc);
+  border-radius: 6px; font: inherit; background: var(--color-bg, #fafafa); color: inherit;
+}
+.chat-composer button {
+  padding: 0.4rem 0.8rem; border: 1px solid var(--color-border, #ccc); border-radius: 6px; cursor: pointer;
+  background: var(--color-accent, #1f4e5f); color: #fff;
+}
+.chat-composer button:disabled, .chat-composer textarea:disabled { opacity: 0.5; cursor: not-allowed; }

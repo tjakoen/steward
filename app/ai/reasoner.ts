@@ -9,10 +9,17 @@ import type { Reasoner, ReasonTools } from '@tjakoen/grain/ai/reasoner.ts';
 import type { Intent, Decision, RenderOp } from '@tjakoen/grain/ai/contract.ts';
 import { surface } from '@tjakoen/grain/ai/contract.ts';
 import type { Services } from '../services/index.ts';
+import { streamChatReply } from './chat.ts';
+import { streamOllama } from './ollama.ts';
 
 export function makeStewardReasoner(services: Services): Reasoner {
   return {
     async decide(intent: Intent, tools: ReasonTools): Promise<Decision> {
+      // Conversational assistant (0005): stream a reply from the local Ollama model.
+      if (intent.action === 'chat.send' || intent.action === 'say.set') {
+        return streamChatReply(intent, tools, (messages, signal) => streamOllama(messages, { signal }));
+      }
+
       if (intent.action === 'demo.run') {
         // Pick any customer and append a demo progress note — a real, audited write.
         const customer = services.repos.customers.list()[0];

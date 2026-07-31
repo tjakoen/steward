@@ -1,0 +1,40 @@
+# --- PII / private reference material — NEVER commit ---
+_private/
+*.docx
+*.pdf
+
+# --- data / databases ---
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# --- secrets ---
+secrets/
+.env
+.env.*
+*.local.*
+service-account*.json
+
+# --- deps / build ---
+node_modules/
+dist/
+build/
+*.log
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- compiled binary output (plan 0007) ---
+steward
+steward.exe
+release/
+
+# nimbalyst session artifacts
+.nimbalyst/

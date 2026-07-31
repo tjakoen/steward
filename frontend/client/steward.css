@@ -1,0 +1,28 @@
+/* STEWARD app chrome. GRAIN tokens (variables.css) supply the palette. */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--color-border, #ddd);
+  background: var(--color-surface, #fff);
+}
+.app-header nav { display: flex; gap: 0.9rem; }
+.app-header nav a { text-decoration: none; color: inherit; opacity: 0.85; }
+.app-header nav a:hover { opacity: 1; }
+.app-header button { margin-left: auto; }
+.app-header nav + button { margin-left: auto; }
+
+.app-main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1.25rem; }
+.app-main section { margin-block: 1.75rem; }
+
+.log {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  min-height: 3rem;
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+.log p { margin: 0.15rem 0; }

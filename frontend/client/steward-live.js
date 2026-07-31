@@ -37,21 +37,65 @@ function refreshBoardCounts() {
   });
 }
 
-// ---- slide-in drawer (New / Edit forms) ------------------------------------
+// ---- slide-in drawer (view / new / edit) -----------------------------------
+// Records are read AND written in the drawer: clicking a row or board card
+// loads `/<record>/panel` (the view form), and Edit swaps in the `/edit`
+// fragment for the same record. The full detail page still exists for deep
+// links — it renders the SAME panel markup, so the two can't drift.
 const drawer = () => document.getElementById('app-drawer');
-function openDrawer(title) {
-  const d = drawer(); if (!d) return;
-  if (title) { const h = d.querySelector('[data-drawer-title]'); if (h) h.textContent = title; }
-  d.hidden = false;
-  const f = d.querySelector('input, select, textarea'); if (f) f.focus();
+function drawerParts() {
+  const d = drawer(); if (!d) return null;
+  return { d, body: d.querySelector('[data-drawer-body]'), title: d.querySelector('[data-drawer-title]') };
 }
-function closeDrawer() { const d = drawer(); if (d) d.hidden = true; }
+function openDrawer(title) {
+  const p = drawerParts(); if (!p) return;
+  if (title) p.title.textContent = title;
+  p.d.hidden = false;
+  const f = p.d.querySelector('input, select, textarea'); if (f) f.focus();
+}
+function closeDrawer() {
+  const p = drawerParts(); if (!p) return;
+  p.d.hidden = true;
+  delete p.d.dataset.recordPath;
+}
 
-document.addEventListener('click', async (e) => {
+// The create form ships inside the drawer; stash it so "+ New" can restore it
+// after the drawer has been used to view or edit a record.
+let createHTML = null, createTitle = '';
+(() => { const p = drawerParts(); if (p) { createHTML = p.body.innerHTML; createTitle = p.title.textContent; } })();
+
+async function loadPanel(path) {
+  const p = drawerParts(); if (!p) return;
+  p.body.innerHTML = '<p class="muted">Loading…</p>';
+  p.d.dataset.recordPath = path;
+  openDrawer('Details');
+  p.body.innerHTML = await (await fetch(path + '/panel')).text();
+  const marker = p.body.querySelector('[data-panel-title]');
+  if (marker) p.title.textContent = marker.getAttribute('data-panel-title');
+}
+
+document.addEventListener('click', (e) => {
   const t = e.target;
   if (!(t instanceof HTMLElement)) return;
-  if (t.closest('[data-drawer-open]')) { openDrawer(); return; }
   if (t.closest('[data-drawer-close]') || t.classList.contains('drawer__backdrop')) { closeDrawer(); return; }
+  if (t.closest('[data-drawer-open]')) {
+    const p = drawerParts();
+    if (p && createHTML !== null) {
+      p.body.innerHTML = createHTML;
+      p.title.textContent = createTitle;
+      delete p.d.dataset.recordPath;
+    }
+    openDrawer();
+    return;
+  }
+  // A record row / board card opens its panel — but let modified clicks and
+  // links inside the drawer (PDF, "open full page") behave normally.
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  const rec = t.closest('[data-href]');
+  if (rec && !t.closest('.drawer')) {
+    e.preventDefault();
+    loadPanel(rec.getAttribute('data-href'));
+  }
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 
@@ -92,11 +136,19 @@ async function submitForm(form) {
   if (res.status === 202) {
     status(form, 'Saved.', true);
     if (form.dataset.mode === 'create') form.reset();
-    // In the drawer: a create appends its row live over SSE — just close.
-    // An edit updates a detail surface the row op doesn't target — reload to reflect it.
+    // In the drawer, what to do next depends on WHAT was submitted:
+    //  - edit of the record the page itself shows → reload (the page behind is stale)
+    //  - edit of a record opened from a list      → back to its view panel
+    //  - new-record form (no record open)         → close; its row arrives over SSE
+    //  - a sub-form inside a record panel (add progress) → stay put; SSE appends it
     if (form.closest('.drawer')) {
-      if (form.dataset.mode === 'edit') { location.reload(); return; }
-      closeDrawer();
+      const path = drawer().dataset.recordPath;
+      if (form.dataset.mode === 'edit') {
+        if (path && location.pathname !== path) loadPanel(path);
+        else location.reload();
+        return;
+      }
+      if (!path) closeDrawer();
     }
   } else {
     let msg = 'Error ' + res.status;
@@ -113,26 +165,21 @@ document.addEventListener('submit', (e) => {
   }
 });
 
-// Table rows with data-href navigate on click (but let real links/buttons win).
-document.addEventListener('click', (e) => {
-  const t = e.target;
-  if (!(t instanceof HTMLElement) || t.closest('a,button')) return;
-  const tr = t.closest('tr[data-href]');
-  if (tr) location.href = tr.getAttribute('data-href');
-});
-
-// FormBuilder view→edit: load the edit fragment into the drawer (not inline).
+// FormBuilder view→edit: swap the edit fragment into the drawer. Works both
+// from a panel already open in the drawer and from a full detail page.
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (!(t instanceof HTMLElement)) return;
+  const p = drawerParts(); if (!p) return;
   if (t.hasAttribute('data-form-edit')) {
-    const body = drawer() && drawer().querySelector('[data-drawer-body]');
-    if (!body) return;
-    body.innerHTML = '<p class="muted">Loading…</p>';
+    const path = p.d.dataset.recordPath || location.pathname;
+    p.body.innerHTML = '<p class="muted">Loading…</p>';
     openDrawer('Edit');
-    body.innerHTML = await (await fetch(location.pathname + '/edit')).text();
+    p.d.dataset.recordPath = path;
+    p.body.innerHTML = await (await fetch(path + '/edit')).text();
   } else if (t.hasAttribute('data-form-cancel')) {
-    closeDrawer();
+    const path = p.d.dataset.recordPath;
+    if (path) loadPanel(path); else closeDrawer();
   }
 });
 

@@ -240,6 +240,16 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .drawer__body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5, 1.25rem); }
 .drawer__body .fb { max-width: none; }
 
+/* Record panel: the meta strip under the title (code, owner, status, links). */
+.panel-meta {
+  margin: 0 0 var(--space-4, 1rem); display: flex; align-items: center; flex-wrap: wrap;
+  gap: var(--space-2, .5rem); font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+}
+.panel-meta a { color: var(--color-muted, #6E6C64); }
+.panel-meta a:hover { color: var(--color-fg, #1C1B17); }
+.drawer__body .panel-meta:last-child { margin: var(--space-5, 1.25rem) 0 0; }
+.drawer__body .section-title { margin-top: var(--space-6, 1.5rem); }
+
 /* ---- Article (MILL help / changelog rendered inside the shell) ----------- */
 .doc { max-width: 46rem; }
 .doc h1 { font-size: var(--text-xl, 1.3rem); }

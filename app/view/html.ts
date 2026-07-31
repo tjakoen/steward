@@ -194,7 +194,7 @@ export function ticketCard(t: Ticket, customerLabel: string): string {
     ? `<span class="muted">waiting: ${esc(t.waitingOn)}</span>` : '';
   return (
     `<li class="card" data-surface="ticket:${esc(t.id)}" draggable="true"` +
-    ` data-ticket-id="${esc(t.id)}" data-status="${esc(t.status)}">` +
+    ` data-ticket-id="${esc(t.id)}" data-status="${esc(t.status)}" data-href="/tickets/${esc(t.id)}">` +
     `<a href="/tickets/${esc(t.id)}"><strong>${esc(t.title)}</strong></a>` +
     `<span class="muted mono">${esc(t.ticketId)}</span>` +
     `<span class="muted">${esc(customerLabel)}</span>${waiting}` +

@@ -192,6 +192,64 @@ const ticketValues = (t: Ticket): Record<string, string> => ({
   summary: t.summary, nextAction: t.nextAction, waitingOn: t.waitingOn,
 });
 
+// ---- record panels ---------------------------------------------------------
+// ONE builder per record kind, rendered in two places: the slide-in drawer
+// (row click → `/…/:id/panel` fragment) and the standalone detail page (deep
+// link / refresh). Same markup both ways, so the two can't drift. `data-panel-title`
+// tells the drawer what to put in its header.
+
+const panelMeta = (parts: string[]): string =>
+  `<p class="panel-meta">${parts.filter(Boolean).join(' · ')}</p>`;
+
+/** In the drawer only: a way back out to the full, addressable page. */
+const fullPageLink = (href: string, inDrawer: boolean): string =>
+  inDrawer ? `<p class="panel-meta"><a href="${href}">Open full page ↗</a></p>` : '';
+
+function clientPanel(c: Client, inDrawer = false): string {
+  return (
+    `<div data-panel-title="${esc(c.name)}">` +
+    panelMeta([`<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`]) +
+    `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
+    fullPageLink(`/clients/${esc(c.id)}`, inDrawer) +
+    `</div>`
+  );
+}
+
+function customerPanel(c: Customer, inDrawer = false): string {
+  const clients = services.repos.clients.list();
+  const client = services.repos.clients.get(c.clientId);
+  return (
+    `<div data-panel-title="${esc(personsLabel(c))}">` +
+    panelMeta([`<span class="mono">${esc(c.code)}</span>`, client ? esc(client.name) : '']) +
+    `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>` +
+    fullPageLink(`/customers/${esc(c.id)}`, inDrawer) +
+    `</div>`
+  );
+}
+
+function ticketPanel(t: Ticket, inDrawer = false): string {
+  const customer = services.repos.customers.get(t.customerId);
+  const who = customer ? personsLabel(customer) : '—';
+  return (
+    `<div data-panel-title="${esc(t.title)}">` +
+    panelMeta([`<span class="mono">${esc(t.ticketId)}</span>`, esc(who),
+      `<span class="badge accent">${esc(t.status)}</span>`,
+      `<a href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">PDF ↗</a>`]) +
+    `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` +
+    `<h3 class="section-title">Progress log</h3>${progressList(t)}` +
+    `<form class="fb" data-action="ticket.progress" data-mode="create">` +
+    `<input type="hidden" name="id" value="${esc(t.id)}" />` +
+    `<div class="form-row"><label for="f_update">Add update</label>` +
+    `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
+    `<div class="form-controls"><button type="submit">Log</button></div></form>` +
+    fullPageLink(`/tickets/${esc(t.id)}`, inDrawer) +
+    `</div>`
+  );
+}
+
+const fragment = (html: string): Response =>
+  new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+
 /** Resolve a ticket's customer label; caches the customer lookups per call. */
 function ticketLabeler(): (t: Ticket) => string {
   const cache = new Map<string, string>();
@@ -321,9 +379,16 @@ const server = Bun.serve({
         if (!c) return new Response('Not found', { status: 404 });
         return layout(c.name,
           `<a class="back-link" href="/clients">← Clients</a>` +
-          `<div class="page-head"><h1>${esc(c.name)}</h1><span class="sub">${esc(c.code)}</span></div>` +
-          `<div class="panel"><div class="panel__body" data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div></div>`,
+          `<div class="page-head"><h1>${esc(c.name)}</h1></div>` +
+          `<div class="panel"><div class="panel__body">${clientPanel(c)}</div></div>`,
           { path: '/clients', crumbs: `<a href="/clients">Clients</a> / <strong>${esc(c.name)}</strong>` });
+      },
+    },
+    '/clients/:id/panel': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.clients.get(id);
+        return c ? fragment(clientPanel(c, true)) : new Response('Not found', { status: 404 });
       },
     },
     '/clients/:id/edit': {
@@ -357,12 +422,18 @@ const server = Bun.serve({
         const id = (req as unknown as { params: { id: string } }).params.id;
         const c = services.repos.customers.get(id);
         if (!c) return new Response('Not found', { status: 404 });
-        const clients = services.repos.clients.list();
         return layout(personsLabel(c),
           `<a class="back-link" href="/customers">← Customers</a>` +
-          `<div class="page-head"><h1>${esc(personsLabel(c))}</h1><span class="sub">${esc(c.code)}</span></div>` +
-          `<div class="panel"><div class="panel__body" data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div></div>`,
+          `<div class="page-head"><h1>${esc(personsLabel(c))}</h1></div>` +
+          `<div class="panel"><div class="panel__body">${customerPanel(c)}</div></div>`,
           { path: '/customers', crumbs: `<a href="/customers">Customers</a> / <strong>${esc(personsLabel(c))}</strong>` });
+      },
+    },
+    '/customers/:id/panel': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.customers.get(id);
+        return c ? fragment(customerPanel(c, true)) : new Response('Not found', { status: 404 });
       },
     },
     '/customers/:id/edit': {
@@ -395,21 +466,19 @@ const server = Bun.serve({
         const id = (req as unknown as { params: { id: string } }).params.id;
         const t = services.repos.tickets.get(id);
         if (!t) return new Response('Not found', { status: 404 });
-        const customer = services.repos.customers.get(t.customerId);
-        const who = customer ? personsLabel(customer) : '—';
         const pdfBtn = `<a class="btn" href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">Download PDF</a>`;
         return layout(t.title,
           `<a class="back-link" href="/tickets">← Board</a>` +
-          `<div class="page-head"><h1>${esc(t.title)}</h1>` +
-          `<span class="sub">${esc(t.ticketId)} · ${esc(who)} · <span class="badge accent">${esc(t.status)}</span></span></div>` +
-          `<div class="panel"><div class="panel__body" data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div></div>` +
-          `<section class="panel"><div class="panel__head"><h2>Progress log</h2></div><div class="panel__body">${progressList(t)}` +
-          `<form class="fb" data-action="ticket.progress" data-mode="create">` +
-          `<input type="hidden" name="id" value="${esc(t.id)}" />` +
-          `<div class="form-row"><label for="f_update">Add update</label>` +
-          `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
-          `<div class="form-controls"><button type="submit">Log</button></div></form></div></section>`,
+          `<div class="page-head"><h1>${esc(t.title)}</h1></div>` +
+          `<div class="panel"><div class="panel__body">${ticketPanel(t)}</div></div>`,
           { path: '/tickets', crumbs: `<a href="/tickets">Tickets</a> / <strong>${esc(t.title)}</strong>`, actions: pdfBtn });
+      },
+    },
+    '/tickets/:id/panel': {
+      GET: (req) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const t = services.repos.tickets.get(id);
+        return t ? fragment(ticketPanel(t, true)) : new Response('Not found', { status: 404 });
       },
     },
     '/tickets/:id/pdf': {

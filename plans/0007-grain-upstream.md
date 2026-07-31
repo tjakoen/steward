@@ -269,4 +269,18 @@ Two things this plan looked at and set aside on purpose: STEWARD's `.panel` agai
 grain's `card` molecule, and whether FormBuilder (`.fb` plus `app/view/html.ts`) belongs
 in BATCH. Both are real questions. Neither is worth holding this release for.
 
-Next after this: 0008-shell (the `bun build --compile` binary), then 0009-sheets-sync.
+Next after this: 0009-shell (the `bun build --compile` binary), then 0010-sheets-sync.
+
+## Amended 2026-08-01 — 0008 runs first
+
+A UI audit found that `.app-shell` is one of **twelve** class names STEWARD and GRAIN both
+define, four of them doing visible damage (`.board` caps the kanban at GRAIN's prose measure,
+`.icon` clips the theme toggle to 34×20, `.btn` gives the app two button languages,
+`.chat-message` double-borders every AI reply). The `.app-shell` collision is also live at
+every width, not only below 768px: at 1440px the computed areas are already GRAIN's while the
+columns are STEWARD's.
+
+Adopting GRAIN's app-shell fixes one of the four and leaves three, so the browser gate at
+step 6 would sign off a shell that is still half-GRAIN. `plans/0008-ui-audit.md` closes the
+collisions first; this plan resumes after it, unchanged apart from the sequencing. The grain
+branch `0007-admin-surfaces` stays as built — nothing found here changes what was upstreamed.

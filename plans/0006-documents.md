@@ -166,7 +166,19 @@ PDF filed to Drive, and delete removing both the row and the Drive file. A docum
 uploaded earlier to local disk kept working throughout, which is the point of routing
 reads by the store each document records.
 
+## Still open (checked 2026-08-01)
+
+Two things this plan describes have still not been done, and neither is a code task:
+
+- **No file has been picked** through the Picker from a browser signed in as the connected
+  account. Everything up to the pick is exercised; the pick itself is not.
+- **`GOOGLE_API_KEY` is unrestricted** in Cloud Console. The Picker needs the key in the
+  browser, so it is public by design — an HTTP-referrer restriction to this origin is the
+  only thing limiting who can spend against it.
+
+Tracked in 0008 so they do not disappear into a plan marked done.
+
 ## Roadmap note
 
 This plan takes the 0006 slot; the previously-sketched roadmap shifts to
-0007-grain-upstream → 0008-shell → 0009-sheets-sync.
+0007-grain-upstream → 0008-ui-audit → 0009-shell → 0010-sheets-sync.

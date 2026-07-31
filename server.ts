@@ -875,11 +875,14 @@ const server = Bun.serve({
         // Say plainly what is true: not configured, configured but not
         // connected, or connected as someone.
         const state = !g.configured
-          ? `<p class="muted">No OAuth client id configured. Create a Google Cloud project with a ` +
-            `<strong>Desktop app</strong> OAuth client, then set <code>GOOGLE_CLIENT_ID</code> and ` +
-            `<code>GOOGLE_CLIENT_SECRET</code> before starting STEWARD.</p>` +
-            `<p class="muted">Register this redirect URI on the client: ` +
-            `<code>http://127.0.0.1:${config.port}${config.google.redirectPath}</code></p>`
+          ? `<p class="muted">No OAuth client id configured. Create a Google Cloud project, enable the ` +
+            `Drive API, and add an OAuth client of type <strong>Desktop app</strong>. Then set ` +
+            `<code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> before starting STEWARD.</p>` +
+            `<p class="muted">Desktop clients allow loopback redirects on any port, so there is nothing ` +
+            `to register — this build listens on ` +
+            `<code>http://127.0.0.1:${config.port}${config.google.redirectPath}</code>.</p>` +
+            `<p class="muted">Publish the OAuth app to <strong>Production</strong>: while it is in Testing, ` +
+            `Google expires refresh tokens after 7 days and you would have to reconnect weekly.</p>`
           : g.connected
             ? `<p>Connected${g.account ? ` as <strong>${esc(g.account)}</strong>` : ''}. ` +
               `New documents are stored in the <strong>${esc(config.google.folderName)}</strong> folder of that Drive.</p>` +

@@ -118,9 +118,14 @@ there is **no UI to link an existing Drive file**. Doing it properly needs the G
 Picker, because `drive.file` deliberately cannot see files STEWARD did not create — the
 user has to hand each one over. Until that is built, "link" is reachable only in code.
 
-Live consent has not been exercised end to end: it needs a real Google Cloud client id.
-Everything up to the redirect is verified (consent URL, scope, PKCE challenge, state
-rejection, token refresh and disconnect against a fake token endpoint).
+## Verified against a real account (2026-07-31)
+
+Live consent now exercised end to end with a real Desktop-app OAuth client: sign-in,
+code exchange, refresh token stored. Then, through the running app — upload to Drive
+(real file id + share link), download read back byte-identical, a 54 KB generated ticket
+PDF filed to Drive, and delete removing both the row and the Drive file. A document
+uploaded earlier to local disk kept working throughout, which is the point of routing
+reads by the store each document records.
 
 ## Roadmap note
 

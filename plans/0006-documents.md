@@ -1,7 +1,7 @@
 ---
 id: 0006-documents
 title: STEWARD — Documents, attachments and the file manager (Drive-backed)
-status: in-progress
+status: done
 owner: admin
 created: 2026-07-31
 milestone: M2 (AI-native cockpit)
@@ -32,8 +32,8 @@ tasks:
     title: GoogleDriveStore implementing the port (upload/download/delete)
     status: done
   - id: link-existing
-    title: Link existing Drive files (needs the Google Picker; not built)
-    status: todo
+    title: Link existing Drive files through the Google Picker
+    status: done
 ---
 
 # STEWARD — Documents (0006)
@@ -111,12 +111,39 @@ everywhere it appears. Every document mutation writes an audit row like any othe
 are all buildable and verifiable with the local store. `oauth` and `drive-store` follow and
 need a Google Cloud client id from the operator to verify end-to-end.
 
+## Linking an existing Drive file (the Picker)
+
+`drive.file` deliberately cannot see files STEWARD did not create. That is the promise the
+connection makes, so linking an existing file is not a scope problem to route around: the
+operator hands over one file at a time through Google's own Picker, and Drive grants this
+app per-file access as a result.
+
+**Link from Drive** sits next to Attach in every record's Documents section, and appears
+only once an account is connected. Clicking it loads Google's SDK on demand — nothing of
+Google's is fetched by pages that never ask — and posts the selection to `/files/link`.
+
+Two extra credentials, from the same Cloud project, both documented in `.env.example`:
+
+- `GOOGLE_API_KEY` — a browser key for the Picker API. It identifies the project; it grants
+  nothing on its own.
+- `GOOGLE_PROJECT_NUMBER` — sent as the Picker's app id. This is what tells Drive *which*
+  app to grant per-file access to; without it a pick yields a file we still cannot read.
+
+Without them everything else keeps working and the button says exactly what is missing
+rather than failing at Google. Settings says the same thing before it is ever clicked.
+
+A linked document keeps an empty `storageId` **on purpose**, even though the Picker hands
+back a real Drive id. A linked file is the operator's own, pre-existing file; the empty
+storageId is what stops `removeDocument` reaching into their Drive. Unlinking forgets the
+reference and nothing else — covered by a test that fails if that ever changes.
+
 ## What is not done
 
-`linkDocument` exists in the service layer and the model carries a `link` source, but
-there is **no UI to link an existing Drive file**. Doing it properly needs the Google
-Picker, because `drive.file` deliberately cannot see files STEWARD did not create — the
-user has to hand each one over. Until that is built, "link" is reachable only in code.
+The Picker dialog itself is unverified against a live account: it needs the API key and
+project number above, which no one has created yet. Everything on this side of it is
+exercised — the config route reports what is missing, `/files/link` records a picked file
+end to end (row in `/files` with a `link` badge, chip on the record, "Open in Drive" in the
+panel), and the button was clicked in a real browser against a connected account.
 
 ## Verified against a real account (2026-07-31)
 

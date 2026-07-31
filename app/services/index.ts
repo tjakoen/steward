@@ -130,15 +130,22 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
       return doc;
     },
 
-    /** Point at a file that lives elsewhere; STEWARD stores no bytes. */
+    /**
+     * Point at a file that lives elsewhere; STEWARD stores no bytes.
+     *
+     * `storageId` stays empty ON PURPOSE, even though the Picker hands us a
+     * real Drive id: a linked file is someone else's — pre-existing, not made
+     * by STEWARD — and an empty storageId is what keeps `removeDocument` from
+     * ever deleting it. Unlinking must only forget the reference.
+     */
     linkDocument(
       target: { entity: AuditEntity; entityId: string },
-      link: { name: string; url: string; mimeType?: string },
+      link: { name: string; url: string; mimeType?: string; size?: number },
       by: string,
     ): DocumentRef {
       const doc = repos.documents.create({
         entity: target.entity, entityId: target.entityId,
-        name: link.name, mimeType: link.mimeType ?? '', size: 0,
+        name: link.name, mimeType: link.mimeType ?? '', size: link.size ?? 0,
         source: 'link', storage: 'drive', storageId: '',
         webViewLink: link.url, createdBy: by,
       });

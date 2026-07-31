@@ -52,6 +52,13 @@ export const config = {
     clientSecret: Bun.env.GOOGLE_CLIENT_SECRET ?? '',
     /** Must match a redirect URI registered on the OAuth client. */
     redirectPath: '/oauth/google/callback',
+    // The Google Picker — the only way to link a file STEWARD did not create —
+    // needs two things the OAuth client does not carry: a browser API key, and
+    // the Cloud project NUMBER. The number is what tells Drive which app to
+    // grant per-file access to when the operator picks something; without it a
+    // pick under `drive.file` yields a file we still cannot read.
+    apiKey: Bun.env.GOOGLE_API_KEY ?? '',
+    projectNumber: Bun.env.GOOGLE_PROJECT_NUMBER ?? '',
     /** Folder created in the operator's own Drive to hold STEWARD's files. */
     folderName: Bun.env.GOOGLE_DRIVE_FOLDER ?? 'STEWARD',
   },

@@ -99,6 +99,23 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 
+// ---- Drive picker ----------------------------------------------------------
+// Loaded only when asked for, so Google's SDK is not fetched by every page.
+document.addEventListener('click', async (e) => {
+  const btn = e.target instanceof HTMLElement ? e.target.closest('[data-picker]') : null;
+  if (!btn) return;
+  e.preventDefault();
+  const { openPicker } = await import('/app/steward-picker.js');
+  openPicker(btn);
+});
+
+// Re-read whatever surface the user is looking at. The drawer holds a fragment,
+// so reloading the page there would throw away the panel they are working in.
+document.addEventListener('steward:refresh', () => {
+  const path = drawer()?.dataset.recordPath;
+  if (path && !drawer().hidden) loadPanel(path); else location.reload();
+});
+
 // ---- instant client-side filter (topbar box filters a table body or board) -
 document.addEventListener('input', (e) => {
   const inp = e.target;

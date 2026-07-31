@@ -299,7 +299,14 @@ const documentsSection = (entity: AuditEntity, id: string): string =>
   `<input type="hidden" name="entity" value="${esc(entity)}">` +
   `<input type="hidden" name="entityId" value="${esc(id)}">` +
   `<div class="form-row"><input type="file" name="file" required></div>` +
-  `<div class="form-controls"><button type="submit">Attach</button></div></form>`;
+  `<div class="form-controls"><button type="submit">Attach</button>` +
+  // Linking an EXISTING Drive file can only start from a connected account —
+  // there is nothing to pick from otherwise.
+  (googleAuth.status().connected
+    ? `<button type="button" data-picker data-entity="${esc(entity)}" data-entity-id="${esc(id)}">` +
+      `Link from Drive</button>`
+    : '') +
+  `</div></form>`;
 
 /** In the drawer only: a way back out to the full, addressable page. */
 const fullPageLink = (href: string, inDrawer: boolean): string =>
@@ -790,6 +797,55 @@ const server = Bun.serve({
         return backTo(recordHref(entity, entityId));
       },
     },
+    // --- Linking an existing Drive file (Google Picker) ---
+    // `drive.file` cannot see files STEWARD did not create, so the operator has
+    // to hand each one over through Google's own Picker. The browser needs a
+    // live access token to run it; that is inherent to the Picker, which talks
+    // to Google directly. What leaves the server here is the SHORT-LIVED access
+    // token only — never the refresh token, which is the real credential.
+    '/files/picker-config': {
+      GET: async () => {
+        const missing: string[] = [];
+        if (!googleAuth.status().connected) missing.push('a connected Google account');
+        if (!config.google.apiKey) missing.push('GOOGLE_API_KEY');
+        if (!config.google.projectNumber) missing.push('GOOGLE_PROJECT_NUMBER');
+        if (missing.length) return Response.json({ ready: false, missing }, { status: 409 });
+
+        const token = await googleAuth.accessToken();
+        if (!token) return Response.json({ ready: false, missing: ['a working access token'] }, { status: 409 });
+        return Response.json({
+          ready: true,
+          token,
+          apiKey: config.google.apiKey,
+          appId: config.google.projectNumber,
+        }, { headers: { 'Cache-Control': 'no-store' } });
+      },
+    },
+    '/files/link': {
+      POST: async (req: Request) => {
+        // JSON rather than a form post: the Picker is JavaScript, and what it
+        // returns is a description of a file, not the file.
+        const body = (await req.json().catch(() => null)) as {
+          entity?: string; entityId?: string;
+          files?: { name?: string; url?: string; mimeType?: string; size?: number }[];
+        } | null;
+        const entity = String(body?.entity ?? '') as AuditEntity;
+        const entityId = String(body?.entityId ?? '');
+        const files = Array.isArray(body?.files) ? body.files : [];
+        if (!entity || !entityId || !files.length) {
+          return Response.json({ error: 'bad link request' }, { status: 400 });
+        }
+        // A link with no URL is unopenable, so it is not worth recording.
+        const linked = files
+          .filter((f) => f.url)
+          .map((f) => services.linkDocument(
+            { entity, entityId },
+            { name: f.name || 'Untitled', url: String(f.url), mimeType: f.mimeType, size: f.size },
+            'human',
+          ));
+        return Response.json({ linked: linked.length });
+      },
+    },
     '/files/:id': {
       GET: async (req) => {
         const id = (req as unknown as { params: { id: string } }).params.id;
@@ -892,6 +948,15 @@ const server = Bun.serve({
           : g.connected
             ? `<p>Connected${g.account ? ` as <strong>${esc(g.account)}</strong>` : ''}. ` +
               `New documents are stored in the <strong>${esc(config.google.folderName)}</strong> folder of that Drive.</p>` +
+              // Linking an existing file is a separate capability with its own
+              // prerequisites; say so here rather than at the moment of failure.
+              (config.google.apiKey && config.google.projectNumber
+                ? `<p class="muted">Existing Drive files can be linked to a record with ` +
+                  `<strong>Link from Drive</strong> in any record's Documents section.</p>`
+                : `<p class="muted">Linking <em>existing</em> Drive files needs the Google Picker: enable the ` +
+                  `Picker API, create a browser <strong>API key</strong>, and set <code>GOOGLE_API_KEY</code> and ` +
+                  `<code>GOOGLE_PROJECT_NUMBER</code> (the Cloud project number). Until then, uploads and ` +
+                  `generated PDFs still file to Drive normally.</p>`) +
               `<form method="post" action="/oauth/google/disconnect"><div class="form-controls">` +
               `<button type="submit">Disconnect</button></div></form>` +
               `<p class="muted">Disconnecting only forgets the connection here. Files already in Drive stay in Drive, ` +

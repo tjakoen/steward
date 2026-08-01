@@ -110,6 +110,8 @@ const PAGE_HEAD =
 const PAGE_ASSETS =
   '<script type="module" src="/scripts/theme.js"></script>' +
   '<script type="module" src="/scripts/ai-dispatch.js"></script>' +
+  // GRAIN's app-shell island: the rail toggle (an off-canvas drawer below 768px).
+  '<script type="module" src="/scripts/shell.js"></script>' +
   '<script type="module" src="/app/steward-live.js"></script>' +
   '<script type="module" src="/app/steward-chat.js"></script>';
 
@@ -202,18 +204,27 @@ function shell(title: string, body: string, opts: ShellOpts): string {
   return (
     `<!DOCTYPE html><html lang="en" data-themes="${config.themes}"><head><meta charset="utf-8">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · STEWARD</title>${PAGE_HEAD}</head>` +
-    `<body><div class="app-shell">` +
-    `<aside class="sidebar">` +
+    // The shell is GRAIN's app-shell organism: STEWARD's chrome sits in its
+    // regions rather than in a grid of STEWARD's own (which collided with it —
+    // see the top of steward.css). The two regions STEWARD has no use for are
+    // switched off with the shell's own attributes, not by redefining the grid.
+    `<body><div class="app-shell" data-aside-hidden="true" data-console-hidden="true">` +
+    `<aside class="app-shell__rail sidebar">` +
     `<a class="sidebar__brand" href="/"><span class="sidebar__mark">S</span> STEWARD</a>` +
     `<nav class="nav">${nav}</nav>` +
     `<div class="sidebar__foot"><span class="avatar">TS</span>` +
     `<span class="who"><strong>Local workspace</strong>no account</span></div>` +
     `</aside>` +
-    `<div class="content">` +
-    `<header class="topbar"><span class="topbar__crumbs">${crumbs}</span>${filterbar}` +
+    // Below 768px the rail is an off-canvas drawer; the scrim dismisses it and
+    // the topbar's ☰ opens it. Both are GRAIN's — scripts/shell.js drives them.
+    `<div class="app-shell__scrim" data-shell="rail-toggle"></div>` +
+    `<header class="app-shell__topbar topbar">` +
+    `<button type="button" class="btn topbar__btn topbar__menu" data-shell="rail-toggle"` +
+    ` aria-label="Show navigation">${icon('menu', undefined, 'sm')}</button>` +
+    `<span class="topbar__crumbs">${crumbs}</span>${filterbar}` +
     `<div class="topbar__actions">${themeToggle}${opts.actions ?? ''}${newBtn}</div></header>` +
-    `<main class="pane">${body}</main>` +
-    `</div></div>${drawer}${PAGE_ASSETS}</body></html>`
+    `<main class="app-shell__main pane">${body}</main>` +
+    `</div>${drawer}${PAGE_ASSETS}</body></html>`
   );
 }
 

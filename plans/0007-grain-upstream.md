@@ -9,7 +9,7 @@ tags: [grain, design-system, upstream, css, release]
 tasks:
   - id: shell-collision
     title: Prove and remove the .app-shell class collision (STEWARD redefines GRAIN's)
-    status: todo
+    status: done
   - id: rail-gaps
     title: side-rail — section label, per-item count, footer identity strip
     status: done
@@ -253,6 +253,45 @@ no DOM in test and zero runtime deps, so a focus-trap assertion here would be te
 hand-rolled fake. The guards catch an obligation being *deleted*, which is the realistic
 regression. The behavior itself gets asserted in the browser at step 6, and that pass is not
 optional.
+
+## Done 2026-08-01 — `shell-collision`
+
+Measured before, on `/clients`, with the app on `PORT=3211`:
+
+| | 1440px | 700px |
+|---|---|---|
+| `gridTemplateAreas` | GRAIN's five regions, three columns | GRAIN's mobile single column |
+| `gridTemplateColumns` | `236px 1204px` | `236px 464px` |
+| `gridTemplateRows` | `900px 0 0 0 0` | `900px 0 0 0 0` |
+
+So the areas were GRAIN's and the tracks were STEWARD's at **both** widths — every child
+auto-placed, and at 700px the rail still ate 34% of the window inside a grid that had been
+told to be one column wide.
+
+The fix is the adoption the plan called for, and it needed no publish: `app-shell` is already
+in 0.1.12. `steward.css` no longer defines `.app-shell` or `.content` at all; the markup carries
+`app-shell__rail` / `__topbar` / `__main` and switches the two unused regions off with
+`data-aside-hidden` / `data-console-hidden`. After: rail in `rail`, topbar in `topbar`, main in
+`main`, aside and console at zero, in both schemes.
+
+Three things worth recording, because none were in the plan:
+
+- **A hidden console still reserves its row.** `data-console-hidden` only sets `display: none`;
+  the row's floor is `minmax(var(--shell-console-min, 2.75rem), …)`, a length. STEWARD zeroes the
+  token on `body` — a token, not a class, so the no-GRAIN-class doctrine holds.
+- **Below 768px GRAIN's rail is an off-canvas drawer, so it needs a toggle.** Adopting without one
+  would have left the nav unreachable at exactly the widths `narrow` exists to fix. The shell's
+  own island (`scripts/shell.js`, now loaded) drives it off `data-shell="rail-toggle"`; the markup
+  gains that button and `.app-shell__scrim`. The button is hidden above 768px on purpose: there the
+  same control collapses the rail to an icon gutter, which STEWARD's `.sidebar` cannot render until
+  it becomes `side-rail` in `steward-adopt`.
+- **`narrow` is most of the way done as a side effect.** At 700px the rail is now off-canvas at zero
+  width and the table has the whole 700px. What is left for that task is the *desktop* half —
+  the collapsed icon rail — which is exactly what `steward-adopt` unlocks.
+
+`ADOPTED_ANYWAY` in `app/view/css.test.ts` is now empty, and the doctrine is that it stays empty.
+84 tests green, `tsc` clean, all nine routes 200, drawer open/Escape/focus-restore and the row
+filter reverified in the browser at 1440px and 700px, light and dark.
 
 ## Risks
 

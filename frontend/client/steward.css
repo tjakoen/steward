@@ -9,16 +9,26 @@
    next to GRAIN's (`class="btn topbar__btn"`, `class="chat-log chat-panel__log"`)
    and styles that. `app/view/css.test.ts` enforces it. */
 
-/* ---- App shell: fixed sidebar + scrollable content column ---------------- */
-.app-shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-w, 236px) 1fr;
-  grid-template-rows: 100vh;   /* single full-height row so short pages still fill the viewport */
-  height: 100vh;
-  overflow: hidden;
-}
+/* ---- App shell ----------------------------------------------------------
+   The layout is GRAIN's `app-shell` organism — the markup carries its region
+   classes (`__rail`, `__topbar`, `__main`) and this file only tunes tokens.
+
+   It used to redefine `.app-shell` as a two-column grid, and that half-worked
+   in the worst way: GRAIN's stylesheet loads first, so STEWARD's columns won,
+   but its `grid-template-areas` did not. Measured at 1440px, the computed
+   areas were GRAIN's five regions over STEWARD's two columns; at 700px the
+   container query rewrote the areas to a single column while the columns
+   stayed two wide. Both children auto-placed either way.
+
+   Two regions STEWARD has no use for are switched off in the markup with the
+   shell's own attributes (`data-aside-hidden`, `data-console-hidden`). Hiding
+   the console only sets `display: none` on the region — its grid row keeps a
+   length floor — so the floor is zeroed here too. */
+body { --shell-console-min: 0rem; }
 
 /* ---- Sidebar (primary nav: WHERE you are) -------------------------------- */
+/* Rides on `.app-shell__rail`, which owns the grid slot and — below 768px —
+   turns it into a fixed off-canvas drawer. */
 .sidebar {
   display: flex; flex-direction: column; min-height: 0;
   background: var(--color-surface, #E8E6DF);
@@ -72,8 +82,9 @@
 .sidebar__foot .who { font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64); line-height: 1.2; }
 .sidebar__foot .who strong { display: block; color: var(--color-fg, #1C1B17); font-size: var(--text-sm, .875rem); font-weight: 600; }
 
-/* ---- Content column: topbar (WHAT you do here) + scrollable pane --------- */
-.content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ---- Topbar (WHAT you do here) + the scrolling pane ---------------------- */
+/* Both ride on a shell region (`__topbar`, `__main`); there is no wrapper column
+   between them any more — the shell's grid places them directly. */
 .topbar {
   display: flex; align-items: center; gap: var(--space-4, 1rem);
   height: var(--topbar-h, 52px); padding: 0 var(--space-6, 1.5rem); flex: none;
@@ -83,6 +94,13 @@
 .topbar__crumbs { font-size: var(--text-sm, .875rem); color: var(--color-muted, #6E6C64); }
 .topbar__crumbs strong { color: var(--color-fg, #1C1B17); font-weight: 600; }
 .topbar__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2, .5rem); }
+/* Below 768px GRAIN's shell makes the rail a fixed off-canvas drawer, so this
+   toggle (driven by GRAIN's scripts/shell.js) is the only way back to the nav.
+   Above it the rail is always on screen and the same control would collapse it
+   to an icon gutter, which STEWARD's own `.sidebar` cannot render — that lands
+   when the sidebar becomes GRAIN's `side-rail`. So: mobile only, for now. */
+.topbar__menu { display: none; }
+@container shell-frame (max-width: 768px) { .topbar__menu { display: inline-flex; } }
 
 /* topbar search (only where a page opts in) */
 .searchbar { flex: 1; max-width: 360px; position: relative; }
@@ -111,8 +129,10 @@
 
 /* The pane is a flex column ONLY so the kanban board can stretch to fill it.
    Everything else must keep its natural height — without this, a tall page
-   (Settings) gets its panels squeezed and their contents clipped. */
-.pane { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6, 1.5rem); display: flex; flex-direction: column; }
+   (Settings) gets its panels squeezed and their contents clipped.
+   The scroll belongs to `.app-shell__main` on the same element; do not restate
+   it here, or the page has two owners for one overflow. */
+.pane { min-height: 0; padding: var(--space-6, 1.5rem); display: flex; flex-direction: column; }
 .pane > *:not(.kanban) { flex: none; }
 .pane > :first-child { margin-top: 0; }
 

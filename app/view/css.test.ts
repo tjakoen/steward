@@ -14,12 +14,12 @@ import { join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { config } from '../../config.ts';
 
-/** Class names STEWARD is knowingly redefining, each with the plan that ends it. */
-const ADOPTED_ANYWAY = new Set([
-  // 0007-grain-upstream replaces this whole rule with GRAIN's real app shell;
-  // deleting it before then leaves STEWARD with no layout at all.
-  'app-shell',
-]);
+/**
+ * Class names STEWARD is knowingly redefining, each with the plan that ends it.
+ * Empty since 0007's `shell-collision` retired the last one (`app-shell`, now
+ * adopted rather than redefined) — the doctrine is that it stays empty.
+ */
+const ADOPTED_ANYWAY = new Set<string>([]);
 
 const STEWARD_CSS = join(config.root, 'frontend', 'client', 'steward.css');
 

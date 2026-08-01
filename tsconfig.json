@@ -17,6 +17,9 @@
 
     "jsx": "react-jsx"
   },
-  "include": ["server.ts", "config.ts", "app/**/*.ts", "frontend/**/*.ts", "shell/**/*.ts"],
+  "include": [
+    "server.ts", "config.ts", "app/**/*.ts", "frontend/**/*.ts", "shell/**/*.ts",
+    "build/**/*.ts", "scripts/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist", "_private"]
 }

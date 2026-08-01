@@ -1,16 +1,14 @@
 // STEWARD composition root. BATCH is a library — this file owns the server,
 // the single /intent door, the /stream SSE hub, and mounts MILL/PROOF/CRUMB.
 
-import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { readdirSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 // BATCH
 import { bunRuntime } from '@tjakoen/batch/platform/bun-runtime.ts';
-import { makeStatic } from '@tjakoen/batch/http/static.ts';
 import { makePageServer } from '@tjakoen/batch/http/pages.ts';
 import { createStream, type Stream } from '@tjakoen/batch/http/stream.ts';
-import { createStyleBundle } from '@tjakoen/batch/assets/style-bundle.ts';
 // GRAIN
 import { createInteractionLayer } from '@tjakoen/grain/ai/interaction-layer.ts';
 import { createStreamLogSink } from '@tjakoen/grain/ai/timeline-log.ts';
@@ -19,7 +17,7 @@ import {
 } from '@tjakoen/grain/ai/contract.ts';
 import { buildManifest, type ManifestTarget } from '@tjakoen/grain/ai/manifest.ts';
 // MILL / PROOF / CRUMB
-import { createMillRoutes, dirSource, type MillCollection } from '@tjakoen/mill/serve.ts';
+import { createMillRoutes, type MillCollection } from '@tjakoen/mill/serve.ts';
 import { createProofRoutes } from '@tjakoen/proof/routes.ts';
 import { createCrumbRoutes } from '@tjakoen/crumb/routes.ts';
 
@@ -31,6 +29,7 @@ import { makeServices, type DocumentStores } from './app/services/index.ts';
 import { makeGoogleAuth, makeVerifier, challengeFor, authUrl, GOOGLE_SCOPE } from './app/google/oauth.ts';
 import { GoogleDriveStore } from './app/google/drive.ts';
 import { makeStewardReasoner } from './app/ai/reasoner.ts';
+import { CHAT_SURFACE, SCREEN_SURFACE } from './app/ai/surfaces.ts';
 import { seedDemo } from './app/seed/demo.ts';
 import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
 import {
@@ -44,8 +43,10 @@ import { TICKET_STATUSES } from './app/domain/types.ts';
 import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
-
-const pkg = (spec: string) => fileURLToPath(import.meta.resolve(spec));
+import { componentsCss, embeddedSource, isAsset, serveAsset } from './app/assets/serve.ts';
+import { listen, openBrowser, probeExisting } from './app/launch.ts';
+import { applyUpdate, checkForUpdate, cleanupOldBinaries } from './app/update.ts';
+import { dataDir } from './app/paths.ts';
 
 // ---- storage + services ----
 db(); // ensure schema exists
@@ -78,6 +79,16 @@ const services = makeServices(repos, documentStores);
 
 // ---- GRAIN door ----
 const stream: Stream = createStream();
+
+// Keep every open SSE connection non-idle. BATCH's hub is deliberately transport-only
+// and holds no timers, so the heartbeat belongs here at the composition root rather than
+// upstream — a timer in `createStream` would be a publish cycle and an opinion imposed on
+// every consumer. `EventSource` only dispatches listeners for event names the client
+// registered, so an unhandled `ping` is inert in the browser. `.unref()` so it never
+// holds the process open on shutdown.
+const HEARTBEAT_MS = 20_000;
+setInterval(() => stream.broadcast('ping', { t: Date.now() }), HEARTBEAT_MS).unref();
+
 const aiLayer = createInteractionLayer({
   reasoner: makeStewardReasoner(services),
   stream,
@@ -580,40 +591,66 @@ function ticketLabeler(): (t: Ticket) => string {
 const docChrome = (path: string) => (input: { title: string; body: string }) =>
   shell(input.title, `<article class="doc">${input.body}</article>`, { path });
 const millCollections: MillCollection[] = [
-  { prefix: '/help', title: 'Help', source: dirSource(join(config.contentDir, 'help')), chrome: docChrome('/help') },
-  { prefix: '/changelog', title: 'Changelog', source: dirSource(config.contentDir), chrome: docChrome('/changelog') },
+  { prefix: '/help', title: 'Help', source: embeddedSource('/help'), chrome: docChrome('/help') },
+  { prefix: '/changelog', title: 'Changelog', source: embeddedSource('/changelog'), chrome: docChrome('/changelog') },
 ];
 const millRoutes = createMillRoutes({
   collections: millCollections,
   compose: (html) => renderPage(html),
 });
 
-// ---- PROOF (dev plan board) — internal, wrapped in the same shell ----
-const proofRoutes = createProofRoutes({
-  plansDir: config.plansDir,
-  prefix: '/plans',
-  chrome: (title, body) =>
-    renderAppPage(shell(title, `<link rel="stylesheet" href="/proof.css">${body}`, { path: '/plans' })),
-  liveScriptSrc: '/proof-live.js',
-});
+// ---- PROOF (dev plan board) and CRUMB (guided tours) ----
+//
+// Both read a DIRECTORY, and both are deliberately left that way: `plans/` is the
+// internal development board and `tours/` does not exist yet. Shipping this plan file to
+// an operator is noise, not a feature, so a binary simply has no plans to show.
+//
+// They must therefore MISS rather than throw when the directory is absent — `readdir` on
+// a missing path is an ENOENT, and an unguarded one turns "no plans here" into a 500 on
+// the way to every other route, since these run before MILL and the page server.
+const missing = async (): Promise<Response | null> => null;
+const hasDir = (p: string) => { try { return statSync(p).isDirectory(); } catch { return false; } };
 
-// ---- CRUMB (guided tours; JSON only) ----
-const crumbRoutes = createCrumbRoutes({ toursDir: config.toursDir });
+const proofRoutes = hasDir(config.plansDir)
+  ? createProofRoutes({
+      plansDir: config.plansDir,
+      prefix: '/plans',
+      chrome: (title, body) =>
+        renderAppPage(shell(title, `<link rel="stylesheet" href="/proof.css">${body}`, { path: '/plans' })),
+      liveScriptSrc: '/proof-live.js',
+    })
+  : missing;
+
+const crumbRoutes = hasDir(config.toursDir) ? createCrumbRoutes({ toursDir: config.toursDir }) : missing;
 
 // ---- static + css ----
-const styles = createStyleBundle(bunRuntime, [...config.styleRoots]);
-const staticServers = Object.entries(config.assetDirs).map(
-  ([prefix, dir]) => [prefix, makeStatic(bunRuntime, dir)] as const,
-);
-const serveFonts = makeStatic(bunRuntime, config.fontsDir);
+// Every byte comes from the embedded manifest (build/assets.gen.ts) rather than from a
+// directory walk, in a checkout exactly as in the binary. See app/assets/serve.ts.
 
-const css = async (spec: string) =>
-  new Response(await Bun.file(pkg(spec)).text(), { headers: { 'Content-Type': 'text/css' } });
-const js = async (spec: string) =>
-  new Response(await Bun.file(pkg(spec)).text(), { headers: { 'Content-Type': 'text/javascript' } });
+// A packaged second launch focuses the running app rather than starting a second server
+// on a second port. From a checkout this is skipped entirely: `PORT=3211 bun server.ts`
+// beside a running instance is a deliberate act, not a stray double-click.
+if (config.packaged) {
+  const existing = await probeExisting(config.port);
+  if (existing) {
+    console.log(`STEWARD ${existing.version} is already running → http://localhost:${config.port}`);
+    openBrowser(`http://localhost:${config.port}`);
+    process.exit(0);
+  }
+}
 
-const server = Bun.serve({
-  port: config.port,
+const server = listen((port) => Bun.serve({
+  port,
+  // An SSE response that has said nothing is an IDLE connection, and Bun closes those
+  // after 10 seconds by default — so an op fired at a tab that has been quiet lands
+  // nowhere until EventSource reconnects. 0007's browser pass lost an hour to this as a
+  // phantom drag-and-drop regression; the move was always reaching the server.
+  //
+  // 255 is Bun's ceiling (256 throws), so this alone only moves the cliff to four
+  // minutes. The heartbeat above is the other half: it keeps the connection non-idle,
+  // and this raises the bar the heartbeat has to clear. A desktop app sits open and
+  // quiet all day, so this is the normal case, not the edge one.
+  idleTimeout: 255,
   routes: {
     // --- the door ---
     '/intent': {
@@ -649,10 +686,47 @@ const server = Bun.serve({
     '/ai/manifest': {
       GET: (req: Request) => {
         const screen = new URL(req.url).searchParams.get('screen') ?? 'home';
+        // The manifest is the reasoner's instruction manual: every entry claims "this
+        // address is occupied and these verbs land on it". It advertised `reflection`
+        // until 0009, and no page has rendered a reflection surface since 0008 — so the
+        // AI was being told to write somewhere the write was thrown away, silently at
+        // both ends. (It was doubly wrong: `demo.run` accepts `screen`, not `reflection`,
+        // so the one verb the app implements was not invokable on the one target it
+        // advertised.) Only surfaces that really exist belong here.
         const targets: ManifestTarget[] = [
-          { id: surface('reflection'), kind: 'reflection', accepts: actionsForKind('reflection') },
+          // Mounted on EVERY page by steward-chat.js — `data-surface="chat-log:steward"`,
+          // `data-kind="chat-log"`. This is the one real GRAIN surface in the markup.
+          { id: CHAT_SURFACE, kind: 'chat-log', accepts: actionsForKind('chat-log') },
+          // The page itself: `screen` is ambient, not a DOM node. `demo.run` performs a
+          // real audited write and `navigate` is handled globally by ai-dispatch.js, so
+          // advertising it is a true statement about what this door accepts.
+          { id: SCREEN_SURFACE, kind: 'screen', accepts: actionsForKind('screen') },
         ];
         return Response.json(buildManifest(screen, targets, { itemCount: 0 }));
+      },
+    },
+
+    // --- updates ---
+    // Two doors, deliberately: checking is a read and happens on its own at boot; applying
+    // writes an executable and restarts the process, and only ever happens on a click.
+    '/update/check': {
+      GET: async () => Response.json(await checkForUpdate()),
+    },
+    '/update/apply': {
+      POST: async () => {
+        const found = await checkForUpdate();
+        if (found.state !== 'available') return Response.json({ error: 'Nothing to install.' }, { status: 400 });
+        try {
+          await applyUpdate(found.release);
+        } catch (e) {
+          return Response.json({ error: String((e as Error).message ?? e) }, { status: 500 });
+        }
+        // Restart INTO the new binary. Detached and with its own stdio, so it outlives
+        // this process rather than dying with it, and re-exec'd from the same path the
+        // rename just wrote — the operator's shortcut still points there.
+        Bun.spawn([process.execPath], { stdio: ['ignore', 'ignore', 'ignore'], detached: true }).unref();
+        setTimeout(() => process.exit(0), 250).unref();
+        return Response.json({ ok: true, version: found.version });
       },
     },
 
@@ -1106,6 +1180,37 @@ const server = Bun.serve({
         `<button type="button" class="btn" data-set-theme="baguette">Baguette</button>` +
         `<button type="button" class="btn" data-set-theme="brioche">Brioche</button></div></div>` +
         `</div></section>` +
+        `<section class="panel"><div class="panel__head"><h2>Version</h2></div><div class="panel__body">` +
+        `<p class="muted">STEWARD <span class="mono">${esc(config.version)}</span>` +
+        (config.packaged ? '' : ' — running from a checkout, so updates come from git.') + `</p>` +
+        `<p class="muted">Data is in <span class="mono">${esc(dataDir())}</span>.</p>` +
+        (config.packaged
+          ? `<div class="form-controls"><button type="button" class="btn" id="update-check">Check for updates</button>` +
+            `<button type="button" class="btn" data-variant="soft" id="update-apply" hidden>Download and restart</button></div>` +
+            `<p class="form-status" id="update-status" hidden></p>` +
+            // Applying is a click and only a click: this writes an executable on the
+            // operator's machine and restarts the app. Checking on its own is a read.
+            `<script type="module">
+              const status = document.getElementById('update-status');
+              const apply = document.getElementById('update-apply');
+              const say = (text, ok) => { status.hidden = false; status.textContent = text; status.dataset.ok = String(!!ok); };
+              document.getElementById('update-check').addEventListener('click', async () => {
+                say('Checking…');
+                const r = await fetch('/update/check').then((x) => x.json()).catch(() => ({ state: 'error', reason: 'No network.' }));
+                if (r.state === 'available') { say('Version ' + r.version + ' is available.', true); apply.hidden = false; }
+                else if (r.state === 'current') say('Up to date.', true);
+                else say(r.reason ?? 'Could not check.');
+              });
+              apply.addEventListener('click', async () => {
+                apply.disabled = true;
+                say('Downloading and verifying…');
+                const r = await fetch('/update/apply', { method: 'POST' }).then((x) => x.json()).catch(() => ({ error: 'The download failed.' }));
+                if (r.error) { say(r.error); apply.disabled = false; return; }
+                say('Installed ' + r.version + '. STEWARD is restarting — reload in a moment.', true);
+              });
+            </script>`
+          : '') +
+        `</div></section>` +
         `<section class="panel"><div class="panel__head"><h2>Demo mode</h2></div><div class="panel__body">` +
         `<p class="muted">Load fictional data into a separate demo database. Real data is untouched.</p>` +
         `<div class="form-controls"><button type="button" class="btn" id="reset">Reset demo data</button>` +
@@ -1128,19 +1233,18 @@ const server = Bun.serve({
 
     // --- packaged assets ---
     '/components.css': async () =>
-      new Response(await styles.css(), { headers: { 'Content-Type': 'text/css' } }),
-    '/proof.css': () => css('@tjakoen/proof/board.css'),
-    '/proof-live.js': () => js('@tjakoen/proof/board-live.js'),
-    '/crumb.css': () => css('@tjakoen/crumb/crumb.css'),
-    '/crumb-live.js': () => js('@tjakoen/crumb/crumb-live.js'),
+      new Response(await componentsCss(), { headers: { 'Content-Type': 'text/css' } }),
+
+    // --- what this build calls itself ---
+    // Also the marker a second launch probes before deciding whether the port is held by
+    // another STEWARD or by something else entirely (see app/launch.ts).
+    '/healthz': () => Response.json({ name: 'steward', version: config.version, packaged: config.packaged }),
   },
 
   async fetch(req: Request) {
     const p = new URL(req.url).pathname;
-    if (p.startsWith('/fonts/')) return serveFonts(p.slice('/fonts'.length));
-    for (const [prefix, serve] of staticServers) {
-      if (p.startsWith(prefix + '/')) return serve(p.slice(prefix.length));
-    }
+    // /styles, /scripts, /assets, /app, /fonts, and PROOF's and CRUMB's four named files.
+    if (isAsset(p)) return serveAsset(p);
     const fromProof = await proofRoutes(p); if (fromProof) return fromProof;
     const fromCrumb = await crumbRoutes(p); if (fromCrumb) return fromCrumb;
     const fromMill = await millRoutes(p); if (fromMill) return fromMill;
@@ -1151,12 +1255,25 @@ const server = Bun.serve({
     console.error('[server]', err);
     return new Response(config.isDev ? String(err.stack) : 'Internal Server Error', { status: 500 });
   },
-});
+}), config.port);
 
 // The OAuth redirect must point at the port we actually bound, not the one asked for.
 listeningPort = server.port ?? config.port;
 
-console.log(`STEWARD → http://localhost:${server.port}`);
+const url = `http://localhost:${server.port}`;
+console.log(`STEWARD ${config.version} → ${url}`);
+console.log(`  data: ${dataDir()}`);
+
+// A double-click has no terminal to read the URL out of. `--no-open` is for a packaged
+// run being driven by something other than a person (a smoke test, a service wrapper).
+if (config.packaged && !process.argv.includes('--no-open')) openBrowser(url);
+
+if (config.packaged) {
+  // The previous binary, parked by an update. This is the first moment it is safe to
+  // delete: the new one has demonstrably started, because it is the one running this line.
+  const exeDir = dirname(process.execPath);
+  void cleanupOldBinaries(exeDir, readdirSync(exeDir)).catch(() => {});
+}
 
 // Release the headless-Chrome singleton (0004) on shutdown.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

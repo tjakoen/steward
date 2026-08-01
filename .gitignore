@@ -23,7 +23,14 @@ service-account*.json
 # --- deps / build ---
 node_modules/
 dist/
-build/
+# `build/*`, not `build/` — an ignored DIRECTORY is never descended into, so a `!` negation
+# under it does nothing at all and the file below would silently never be committed.
+build/*
+# …except the embed manifest and its guard, which are SOURCE (plan 0009). The manifest is
+# generated but checked in on purpose: `bun install` must not be a prerequisite for
+# reading what a binary contains, and build/assets.test.ts is what fails when it is stale.
+!build/assets.gen.ts
+!build/assets.test.ts
 *.log
 
 # --- os / editor ---

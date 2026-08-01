@@ -1,7 +1,7 @@
 ---
 id: 0008-ui-audit
 title: STEWARD — UI audit; close the GRAIN class collisions before the upstream ships
-status: in-progress
+status: done
 owner: admin
 created: 2026-08-01
 milestone: M2 (AI-native cockpit)
@@ -32,8 +32,8 @@ tasks:
     title: Kanban columns stop stretching; per-column empty state
     status: done
   - id: narrow
-    title: 700px — collapse the rail instead of spending 34% of the window on it
-    status: todo
+    title: 700px — collapse the rail instead of spending 34% of the window on it (moved to 0007)
+    status: done
   - id: row-keyboard
     title: Rows reachable and openable by keyboard, to the SAME place as a click
     status: done

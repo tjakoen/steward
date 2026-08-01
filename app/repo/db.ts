@@ -1,13 +1,16 @@
 // SQLite is the source of truth. One open DB per process.
-// Path resolves from STEWARD_DB env, else data/steward.db (data/demo.db in DEMO mode).
+// Path resolves from STEWARD_DB env, else <data dir>/steward.db (demo.db in DEMO mode).
+// The data directory is the repo's own `data/` from a checkout and a per-user application
+// directory from a shipped binary — see app/paths.ts for why those must differ.
 
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { dataDir } from '../paths.ts';
 
 export function dbPath(): string {
   if (process.env.STEWARD_DB) return process.env.STEWARD_DB;
-  return process.env.DEMO === '1' ? 'data/demo.db' : 'data/steward.db';
+  return join(dataDir(), process.env.DEMO === '1' ? 'demo.db' : 'steward.db');
 }
 
 let instance: Database | null = null;

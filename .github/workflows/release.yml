@@ -1,0 +1,74 @@
+# Tag a version, get three binaries and the checksums the updater verifies against.
+#
+#   git tag v0.3.0 && git push origin v0.3.0
+#
+# Everything cross-compiles from one Linux runner — `bun build --compile --target=…`
+# downloads the target runtime, so there is no build matrix and no per-OS runner to keep
+# in step. The Windows binary produced here is byte-identical to one built on a Mac.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write        # creating the release and uploading assets; nothing else
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14      # the version the binaries were verified on
+
+      - run: bun install --frozen-lockfile
+
+      # The tag and package.json must agree. A binary that reports a version no release
+      # carries makes every update check permanently wrong, in a way nobody notices until
+      # someone actually needs an update — so this fails the build rather than the user.
+      - name: The tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(bun --print 'require("./package.json").version')"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json $PKG"
+            exit 1
+          fi
+
+      # The full gate, on the same commit that becomes the release. `tsc` cannot see
+      # markup, but it can see everything else, and the manifest's staleness test is the
+      # one that stops a binary shipping without half its stylesheets.
+      - run: bun run check
+      - run: bun test
+
+      - name: Build
+        env:
+          # Baked into the binary — see scripts/build.ts and config.ts for why an
+          # installed-app client secret travels this way. Unset secrets yield a working
+          # binary with Drive switched off, so a fork's release still builds.
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_PROJECT_NUMBER: ${{ secrets.GOOGLE_PROJECT_NUMBER }}
+        run: bun run build
+
+      # The manifest is checked in, and `bun run build` regenerates it. If that changed
+      # anything, the commit being released does not describe the binary being released.
+      - name: The checked-in manifest matches this commit
+        run: git diff --exit-code -- build/assets.gen.ts
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "STEWARD $GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/steward-windows-x64.exe \
+            dist/steward-darwin-arm64 \
+            dist/steward-linux-x64 \
+            dist/SHA256SUMS

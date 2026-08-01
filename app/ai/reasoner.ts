@@ -7,7 +7,7 @@
 
 import type { Reasoner, ReasonTools } from '@tjakoen/grain/ai/reasoner.ts';
 import type { Intent, Decision, RenderOp } from '@tjakoen/grain/ai/contract.ts';
-import { surface } from '@tjakoen/grain/ai/contract.ts';
+import { PUSH_SURFACES } from '@tjakoen/grain/ai/contract.ts';
 import type { Services } from '../services/index.ts';
 import { streamChatReply } from './chat.ts';
 import { streamOllama } from './ollama.ts';
@@ -46,8 +46,15 @@ export function makeStewardReasoner(services: Services): Reasoner {
           line = 'demo.run → no customers yet; seed demo data first.';
         }
 
+        // A `log` op goes to the TIMELINE surface — the convention GRAIN's own
+        // `createStreamLogSink` already uses for every line this app records. It used to
+        // go to `reflection`, an address STEWARD stopped rendering in 0008 and which does
+        // not accept `demo.run` anyway. STEWARD renders no timeline yet either, so this
+        // line is still recorded rather than displayed — but it is recorded through the
+        // one convention instead of at a bespoke dead address, so the day a timeline is
+        // rendered, this appears in it with no change here.
         const op: RenderOp = {
-          target: surface('reflection'),
+          target: PUSH_SURFACES.timeline,
           op: 'log',
           text: line,
           provenance: 'system',

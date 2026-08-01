@@ -5,8 +5,27 @@
 // skip cleanly when no Chrome binary exists (CI-safe).
 
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+/**
+ * Windows install locations, in the order worth trying (0009).
+ *
+ * Edge earns its place here by being on every Windows install and speaking the same
+ * DevTools protocol — it is the difference between "PDFs work" and "PDFs work if the
+ * operator happened to install Chrome". The env vars are absent off Windows, so these
+ * entries collapse to nothing everywhere else.
+ */
+const WINDOWS_CANDIDATES = [
+  [Bun.env.LOCALAPPDATA, 'Google\\Chrome\\Application\\chrome.exe'],
+  [Bun.env.PROGRAMFILES, 'Google\\Chrome\\Application\\chrome.exe'],
+  [Bun.env['PROGRAMFILES(X86)'], 'Google\\Chrome\\Application\\chrome.exe'],
+  [Bun.env.PROGRAMFILES, 'Microsoft\\Edge\\Application\\msedge.exe'],
+  [Bun.env['PROGRAMFILES(X86)'], 'Microsoft\\Edge\\Application\\msedge.exe'],
+].map(([base, rel]) => (base ? `${base}\\${rel}` : undefined));
+
 const CANDIDATES = [
   Bun.env.CHROME_PATH,
   MAC_CHROME,
@@ -15,6 +34,7 @@ const CANDIDATES = [
   '/usr/bin/google-chrome',
   '/usr/bin/chromium-browser',
   '/usr/bin/chromium',
+  ...WINDOWS_CANDIDATES,
 ];
 
 /** First existing Chrome/Chromium binary, or null when none is installed. */
@@ -97,6 +117,12 @@ async function launch(): Promise<Browser> {
       bin,
       '--headless=new',
       '--remote-debugging-port=0',
+      // A throwaway profile, so this NEVER touches the operator's own browser data — and,
+      // on Windows specifically, so it is a real new process. Launching chrome.exe while
+      // Chrome is already running hands the command line to the existing instance and
+      // exits, which here means no "DevTools listening" line and a launch that times out
+      // for no visible reason. A private profile forces a separate instance.
+      `--user-data-dir=${join(tmpdir(), `steward-chrome-${process.pid}`)}`,
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-gpu',

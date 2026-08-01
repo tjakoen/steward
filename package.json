@@ -17,7 +17,11 @@
     "start": "bun server.ts",
     "check": "tsc --noEmit",
     "test": "bun test",
-    "seed:demo": "DEMO=1 bun run app/seed/demo.ts"
+    "seed:demo": "DEMO=1 bun run app/seed/demo.ts",
+    "gen:assets": "bun scripts/gen-assets.ts",
+    "build": "bun scripts/build.ts",
+    "build:win": "bun scripts/build.ts windows",
+    "build:here": "bun scripts/build.ts darwin"
   },
   "type": "module",
   "devDependencies": {

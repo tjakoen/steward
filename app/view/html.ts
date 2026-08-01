@@ -174,7 +174,7 @@ export function customerRow(c: Customer): string {
 }
 
 export function clientRow(c: Client): string {
-  const info = c.branding.companyInfo ? esc(c.branding.companyInfo) : '<span class="sub">—</span>';
+  const info = c.branding.companyInfo ? esc(c.branding.companyInfo) : '<span class="data-table__sub">—</span>';
   return (
     `<tr class="row" data-surface="client:${esc(c.id)}" data-href="/clients/${esc(c.id)}">` +
     `<td><span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span>` +

@@ -1,7 +1,7 @@
 ---
 id: 0007-grain-upstream
 title: STEWARD — push the shell, the data table and the drawer up into GRAIN
-status: in-progress
+status: done
 owner: admin
 created: 2026-07-31
 milestone: M2 (AI-native cockpit)
@@ -30,13 +30,13 @@ tasks:
     status: done
   - id: publish
     title: Bump @tjakoen/grain to 0.1.13 and let CI publish it (GATED ON HUMAN)
-    status: todo
+    status: done
   - id: steward-adopt
     title: Bump the dep, delete the upstreamed CSS, reclass the markup, reverify
-    status: todo
+    status: done
   - id: narrow
     title: 700px — collapse the rail instead of spending 34% of the window on it
-    status: todo
+    status: done
 ---
 
 # STEWARD — GRAIN upstream (0007)
@@ -292,6 +292,64 @@ Three things worth recording, because none were in the plan:
 `ADOPTED_ANYWAY` in `app/view/css.test.ts` is now empty, and the doctrine is that it stays empty.
 84 tests green, `tsc` clean, all nine routes 200, drawer open/Escape/focus-restore and the row
 filter reverified in the browser at 1440px and 700px, light and dark.
+
+## Done 2026-08-01 — `publish`
+
+`@tjakoen/grain@0.1.13` is on the public registry, published by CI (trusted publishing, OIDC)
+off `9a8900a` on grain's `main` — the human gave the go-ahead, and the branch
+`0007-admin-surfaces` fast-forwarded into `main` unchanged from how it was built. 476 monorepo
+tests and `tsc` green before the push. Step 3's question answered: `mill`, `proof` and `crumb`
+pin `^0.1.8` / `^0.1.10`, caret ranges that already admit 0.1.13, so nothing moved with it.
+
+## Done 2026-08-01 — `steward-adopt` and `narrow`
+
+`"@tjakoen/grain": "^0.1.13"`, installed after `rm -rf ~/.bun/install/cache/@tjakoen` — the
+cache wipe RELEASE.md insists on. The markup now reads as composition:
+
+| was | is |
+|---|---|
+| `.sidebar` + `.nav` + `.nav a` | `<nav class="app-shell__rail side-rail">` of `.nav-item`s |
+| `.nav__label` / `.nav__count` / `.nav__spacer` | `.side-rail__label` / `.nav-item__count` / `.side-rail__spacer` |
+| `.sidebar__foot .avatar .who` | `.side-rail__foot` / `__avatar` / `__who` |
+| `.topbar` + `.topbar__crumbs` + `.topbar__actions` | the `__topbar` region + `.topbar-crumbs` + `.topbar-ctl` |
+| `.searchbar` | `.topbar-search` |
+| `.dtable` | `.data-table` (`.dtable` stays, wearing two tunings) |
+| STEWARD's `.drawer` CSS + its open/close code | GRAIN's `drawer` + `scripts/drawer.js` |
+
+`steward.css` is 408 lines, down from 494, and every line of shell, rail, topbar, table and
+drawer *mechanism* in it is gone. What survived is what GRAIN does not ship and STEWARD does:
+the `.rail-mark` badge, `.rail-brand` (GRAIN's brand row is a `<div>`; STEWARD's is the link
+home, so it has to lose the underline), the filter's clear button, a focus-within row highlight,
+a 52ch cap on the free-text column, and the scroll lock.
+
+Four things learnt, all of them the seam rather than the CSS:
+
+- **The drawer is driven through `window.grain.drawer`, not `data-drawer-open`.** GRAIN's
+  delegated opener fires before STEWARD's listener, so a declarative "+ New" would show whatever
+  the panel last held and focus the wrong control. STEWARD puts the content in place first and
+  opens after — which is also what makes GRAIN focus the right thing.
+- **GRAIN focuses the first control in the panel, which is the close button.** Right for a record
+  being read, one Tab short for a form, so STEWARD moves focus to the form's first field after
+  loading one. Everything else modal — Tab trapped at both ends, the rest of the page `inert`,
+  focus returned to the opener — is now GRAIN's and was verified in the browser.
+- **A GRAIN class in a descendant selector is still a collision.** `.topbar-ctl a` failed the
+  guard. The fix is the same doctrine as everywhere else: wear a second class (`topbar-actions`)
+  and hang the rule off that. Same for the drawer body (`drawer-content`).
+- **`narrow` fell out of this.** With the rail finally being `side-rail`, the topbar's ☰ does the
+  right thing at both ends: above 768px it collapses the rail to a 3.25rem icon gutter (labels,
+  counts, section label and the foot's text go; the avatar and the brand mark stay), and below it
+  the rail is an off-canvas drawer over a scrim, so the 700px window spends 0% on navigation
+  instead of 34%. Measured both, in both schemes.
+
+Verified in the browser at 1440px and 700px, light and dark: nine routes 200; drawer open on
+"+ New" focusing the first field, Tab wrapping, Escape closing, focus returning; a row click
+loading its panel fragment and the title following it; the filter hiding rows with its honest
+count and the Clear button; the kanban drag posting `ticket.status` and the card moving over SSE.
+
+One thing the browser pass re-found, unchanged and still unfixed: `Bun.serve` drops `/stream`
+after 10 seconds of quiet, so an op fired at a page that has been idle lands nowhere until
+EventSource reconnects. It cost an hour of chasing a phantom drag-and-drop regression here —
+the move was always reaching the server. It wants `idleTimeout`; it is 0009's.
 
 ## Risks
 

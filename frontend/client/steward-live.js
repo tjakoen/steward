@@ -50,52 +50,45 @@ function drawerParts() {
   const d = drawer(); if (!d) return null;
   return { d, body: d.querySelector('[data-drawer-body]'), title: d.querySelector('[data-drawer-title]') };
 }
-// The drawer is a modal dialog, and the three things that make it one are all
-// here: the page behind is `inert` (so Tab and the pointer cannot reach it, which
-// is also the focus trap — no key-by-key cycling to maintain), the pane stops
-// scrolling under it, and focus returns to whatever opened it. Whoever that was
-// is remembered on the way in; there is no way to ask for it on the way out.
-let drawerOpener = null;
+// GRAIN's scripts/drawer.js owns the modal half — open, close, Escape, the scrim,
+// focus in, Tab trapped, the rest of the page `inert`, focus handed back. STEWARD
+// owns what goes IN the panel, and opens through the documented seam rather than
+// GRAIN's `data-drawer-open` attribute: the attribute would fire first and show
+// whatever content the panel last held, so the content is put in place FIRST and
+// the drawer opened after, which is also what makes GRAIN focus the right field.
+const openDrawer = (opener) => window.grain?.drawer?.open(drawer(), opener);
 
-function openDrawer(title) {
-  const p = drawerParts(); if (!p) return;
-  if (title) p.title.textContent = title;
-  if (p.d.hidden) {
-    drawerOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    document.querySelector('.app-shell')?.setAttribute('inert', '');
-    document.documentElement.classList.add('is-drawer-open');
-    p.d.hidden = false;
-  }
-  // Focus the first field if the panel has one; a view panel has none, so the
-  // close button takes it — focus must land INSIDE a dialog either way.
-  const f = p.d.querySelector('input, select, textarea')
-    || p.d.querySelector('.drawer__head [data-drawer-close]');
+// GRAIN focuses the first control in the panel, which is the close button in the
+// head. That is right for a record being READ; for a form it is one Tab short of
+// where the operator is going, so the form's own first field takes over.
+function focusFirstField(p) {
+  const f = p.body.querySelector('input:not([type=hidden]), select, textarea');
   if (f) f.focus();
 }
 
-function closeDrawer() {
-  const p = drawerParts(); if (!p || p.d.hidden) return;
-  p.d.hidden = true;
-  delete p.d.dataset.recordPath;
-  document.querySelector('.app-shell')?.removeAttribute('inert');
+// The one thing a modal needs that GRAIN's script does not do: lock the scroll.
+// `inert` stops Tab and the pointer, not the wheel — and this shell scrolls in
+// the pane, not the document. Driven off the drawer's own events so it cannot
+// fall out of step with whatever opened it.
+document.addEventListener('grain:drawer-open', () => {
+  document.documentElement.classList.add('is-drawer-open');
+});
+document.addEventListener('grain:drawer-close', (e) => {
   document.documentElement.classList.remove('is-drawer-open');
-  // Only if the opener is still on the page — a row can be replaced over SSE
-  // while the drawer is open, and focusing a detached node silently drops focus
-  // to <body>.
-  if (drawerOpener && document.contains(drawerOpener)) drawerOpener.focus();
-  drawerOpener = null;
-}
+  if (e.target instanceof HTMLElement) delete e.target.dataset.recordPath;
+});
 
 // The create form ships inside the drawer; stash it so "+ New" can restore it
 // after the drawer has been used to view or edit a record.
 let createHTML = null, createTitle = '';
 (() => { const p = drawerParts(); if (p) { createHTML = p.body.innerHTML; createTitle = p.title.textContent; } })();
 
-async function loadPanel(path) {
+async function loadPanel(path, opener) {
   const p = drawerParts(); if (!p) return;
   p.body.innerHTML = '<p class="muted">Loading…</p>';
-  p.d.dataset.recordPath = path;
-  openDrawer('Details');
+  p.title.textContent = 'Details';
+  openDrawer(opener);
+  p.d.dataset.recordPath = path;   // after opening: closing clears it
   p.body.innerHTML = await (await fetch(path + '/panel')).text();
   const marker = p.body.querySelector('[data-panel-title]');
   if (marker) p.title.textContent = marker.getAttribute('data-panel-title');
@@ -104,15 +97,15 @@ async function loadPanel(path) {
 document.addEventListener('click', (e) => {
   const t = e.target;
   if (!(t instanceof HTMLElement)) return;
-  if (t.closest('[data-drawer-close]') || t.classList.contains('drawer__backdrop')) { closeDrawer(); return; }
-  if (t.closest('[data-drawer-open]')) {
+  const newBtn = t.closest('[data-drawer-new]');
+  if (newBtn) {
     const p = drawerParts();
     if (p && createHTML !== null) {
       p.body.innerHTML = createHTML;
       p.title.textContent = createTitle;
-      delete p.d.dataset.recordPath;
     }
-    openDrawer();
+    openDrawer(newBtn);
+    if (p) focusFirstField(p);
     return;
   }
   // A record row / board card opens its panel — but let modified clicks and
@@ -121,16 +114,17 @@ document.addEventListener('click', (e) => {
   const rec = t.closest('[data-href]');
   if (rec && !t.closest('.drawer')) {
     e.preventDefault();
-    loadPanel(rec.getAttribute('data-href'));
+    loadPanel(rec.getAttribute('data-href'), t.closest('a') ?? rec);
   }
 });
+// Escape clears the filter it is typed into. Closing the drawer on Escape is
+// GRAIN's (drawer.js); this only handles the case its own handler cannot see,
+// because the filter box lives outside the drawer and is never focused while
+// one is open.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  // Escape clears the filter it is typed into before it closes anything: the box
-  // has the focus, so that is what the operator means by "undo this".
   const t = e.target;
-  if (t instanceof HTMLElement && t.hasAttribute('data-filter') && t.value) { clearFilter(t); return; }
-  closeDrawer();
+  if (t instanceof HTMLElement && t.hasAttribute('data-filter') && t.value) clearFilter(t);
 });
 
 // ---- Drive picker ----------------------------------------------------------
@@ -167,7 +161,7 @@ function applyFilter(inp) {
   });
   refreshBoardCounts();
 
-  const clear = inp.closest('.searchbar')?.querySelector('[data-filter-clear]');
+  const clear = inp.closest('.topbar-search')?.querySelector('[data-filter-clear]');
   if (clear) clear.hidden = !q;
   const note = document.querySelector('[data-filter-note]');
   if (note) note.textContent = q ? `Showing ${shown} of ${rows.length}` : '';
@@ -185,7 +179,7 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('click', (e) => {
   const btn = e.target instanceof HTMLElement ? e.target.closest('[data-filter-clear]') : null;
-  const inp = btn?.closest('.searchbar')?.querySelector('[data-filter]');
+  const inp = btn?.closest('.topbar-search')?.querySelector('[data-filter]');
   if (inp) clearFilter(inp);
 });
 
@@ -225,7 +219,7 @@ async function submitForm(form) {
         else location.reload();
         return;
       }
-      if (!path) closeDrawer();
+      if (!path) window.grain?.drawer?.close();
     }
   } else {
     let msg = 'Error ' + res.status;
@@ -254,12 +248,14 @@ document.addEventListener('click', async (e) => {
   if (t.hasAttribute('data-form-edit')) {
     const path = p.d.dataset.recordPath || location.pathname;
     p.body.innerHTML = '<p class="muted">Loading…</p>';
-    openDrawer('Edit');
+    p.title.textContent = 'Edit';
+    openDrawer(t);                 // a no-op when it is already the open drawer
     p.d.dataset.recordPath = path;
     p.body.innerHTML = await (await fetch(path + '/edit')).text();
+    focusFirstField(p);
   } else if (t.hasAttribute('data-form-cancel')) {
     const path = p.d.dataset.recordPath;
-    if (path) loadPanel(path); else closeDrawer();
+    if (path) loadPanel(path, t); else window.grain?.drawer?.close();
   }
 });
 

@@ -112,6 +112,9 @@ const PAGE_ASSETS =
   '<script type="module" src="/scripts/ai-dispatch.js"></script>' +
   // GRAIN's app-shell island: the rail toggle (an off-canvas drawer below 768px).
   '<script type="module" src="/scripts/shell.js"></script>' +
+  // GRAIN's drawer island: open/close, Escape, scrim, and the modal obligations.
+  // Loaded BEFORE steward-live.js, which drives it through `window.grain.drawer`.
+  '<script type="module" src="/scripts/drawer.js"></script>' +
   '<script type="module" src="/app/steward-live.js"></script>' +
   '<script type="module" src="/app/steward-chat.js"></script>';
 
@@ -119,9 +122,10 @@ const renderAppPage = (html: string) => renderPage(html);
 const servePage = makePageServer(bunRuntime, config.pagesDir, renderAppPage, PAGE_ASSETS, PAGE_HEAD);
 
 // ---- app shell -------------------------------------------------------------
-// One chrome for EVERY surface (STEWARD routes, MILL help, PROOF plans): a fixed
-// sidebar (primary nav — "where you are") + a topbar (context + actions —
-// "what you do here") + a scrolling content pane. Counts are read live per
+// One chrome for EVERY surface (STEWARD routes, MILL help, PROOF plans), and it
+// is GRAIN's, not STEWARD's: the app-shell organism hosting a side-rail (primary
+// nav — "where you are"), the topbar parts (context + actions — "what you do
+// here") and the scrolling main region. Counts are read live per
 // request so the nav always reflects the DB. Internal PROOF "Plans" is
 // intentionally absent from the nav (dev-only surface, still reachable by URL).
 
@@ -149,10 +153,14 @@ const NAV_FOOT: NavItem[] = [
 const isActive = (item: NavItem, path: string): boolean =>
   item.href === '/' ? path === '/' : path === item.href || path.startsWith(item.href + '/');
 
+// GRAIN's nav-item: the glyph sits in the rail's shared icon gutter, the label
+// beside it, the count in the grid's trailing column. STEWARD supplies the value
+// and nothing else — keeping it current is the consumer's job, says nav-item.md.
 const navLink = (item: NavItem, path: string): string => {
   const active = isActive(item, path) ? ' aria-current="page"' : '';
-  const count = item.count ? `<span class="nav__count">${item.count()}</span>` : '';
-  return `<a href="${item.href}"${active}>${icon(item.ico, 'nav__ico', 'sm')}${esc(item.label)}${count}</a>`;
+  const count = item.count ? `<span class="nav-item__count">${item.count()}</span>` : '';
+  return `<a class="nav-item" href="${item.href}"${active}>${icon(item.ico, 'nav__ico', 'sm')}` +
+    `<span class="nav-item__label">${esc(item.label)}</span>${count}</a>`;
 };
 
 interface ShellOpts {
@@ -169,37 +177,45 @@ function shell(title: string, body: string, opts: ShellOpts): string {
   const { path } = opts;
   const nav =
     NAV_MAIN.map((i) => navLink(i, path)).join('') +
-    `<span class="nav__label">Workspace</span>` +
+    `<span class="side-rail__label">Workspace</span>` +
     NAV_WORK.map((i) => navLink(i, path)).join('') +
     NAV_ACTIVITY.map((i) => navLink(i, path)).join('') +
-    `<span class="nav__spacer"></span>` +
+    `<div class="side-rail__spacer"></div>` +
     NAV_FOOT.map((i) => navLink(i, path)).join('');
 
   const crumbs = opts.crumbs ?? `<strong>${esc(title)}</strong>`;
   // The filter says what it hid and offers a way out of it: hiding rows with no
   // running total lets a filtered list be read as the whole one.
+  // GRAIN's topbar-search ships the BOX only — that the typing hides rows is
+  // STEWARD's, wired to the input in steward-live.js, exactly as topbar.md says.
   const filterbar = opts.filter
-    ? `<div class="searchbar"><input type="search" data-filter="${esc(opts.filter.target)}" ` +
+    ? `<div class="topbar-search filter-box"><input type="search" data-filter="${esc(opts.filter.target)}" ` +
       `placeholder="${esc(opts.filter.placeholder ?? 'Filter…')}" aria-label="Filter">` +
-      `<button type="button" class="linkish searchbar__clear" data-filter-clear hidden>Clear</button></div>` +
+      `<button type="button" class="linkish filter-clear" data-filter-clear hidden>Clear</button></div>` +
       `<span class="filter-note" data-filter-note role="status"></span>`
     : '';
   const themeToggle = `<button type="button" class="btn topbar__btn" data-toggle-scheme aria-label="Toggle light/dark" title="Toggle light/dark">◐</button>`;
-  const newBtn = opts.drawer ? `<button type="button" class="btn" data-variant="soft" data-drawer-open>+ ${esc(opts.drawer.title)}</button>` : '';
+  // NOT `data-drawer-open`: GRAIN's own opener would fire first and open the
+  // drawer on whatever content it last held. STEWARD restores the create form,
+  // then opens through the documented seam (`window.grain.drawer`), so focus
+  // lands on the first field of the form the operator actually asked for.
+  const newBtn = opts.drawer ? `<button type="button" class="btn" data-variant="soft" data-drawer-new>+ ${esc(opts.drawer.title)}</button>` : '';
 
   // A single drawer per page: prefilled with the create form (if any); edit
   // buttons reuse it by swapping the title + loading an /edit fragment.
-  // It is a real dialog: it takes a name from its own heading (which the client
-  // rewrites per record), and the client marks the page behind it inert.
+  // GRAIN's drawer organism owns the shape AND the modal obligations (focus in,
+  // Tab trapped, the rest of the page inert, focus returned) via scripts/drawer.js.
+  // The dialog role sits on the PANEL, which is what that file's markup contract
+  // and the close/scrim handling expect.
   const drawer =
-    `<aside id="app-drawer" class="drawer" hidden role="dialog" aria-modal="true"` +
-    ` aria-labelledby="app-drawer-title">` +
+    `<aside id="app-drawer" class="drawer" data-drawer hidden>` +
     `<div class="drawer__backdrop" data-drawer-close></div>` +
-    `<div class="drawer__panel"><header class="drawer__head">` +
+    `<div class="drawer__panel" role="dialog" aria-modal="true" aria-labelledby="app-drawer-title">` +
+    `<header class="drawer__head">` +
     `<h2 id="app-drawer-title" data-drawer-title>${esc(opts.drawer?.title ?? '')}</h2>` +
     `<button type="button" class="btn topbar__btn" data-drawer-close aria-label="Close">` +
     `${icon('close', undefined, 'sm')}</button></header>` +
-    `<div class="drawer__body" data-drawer-body>${opts.drawer?.body ?? ''}</div></div></aside>`;
+    `<div class="drawer__body drawer-content" data-drawer-body>${opts.drawer?.body ?? ''}</div></div></aside>`;
 
   return (
     `<!DOCTYPE html><html lang="en" data-themes="${config.themes}"><head><meta charset="utf-8">` +
@@ -209,20 +225,25 @@ function shell(title: string, body: string, opts: ShellOpts): string {
     // see the top of steward.css). The two regions STEWARD has no use for are
     // switched off with the shell's own attributes, not by redefining the grid.
     `<body><div class="app-shell" data-aside-hidden="true" data-console-hidden="true">` +
-    `<aside class="app-shell__rail sidebar">` +
-    `<a class="sidebar__brand" href="/"><span class="sidebar__mark">S</span> STEWARD</a>` +
-    `<nav class="nav">${nav}</nav>` +
-    `<div class="sidebar__foot"><span class="avatar">TS</span>` +
-    `<span class="who"><strong>Local workspace</strong>no account</span></div>` +
-    `</aside>` +
+    // The rail is GRAIN's side-rail: brand, items, a spacer, the identity foot,
+    // all direct children (the old `<nav>` wrapper would have hidden them from
+    // the rail's flex column). It stays a landmark by BEING the <nav>.
+    // The brand mark is a <strong>, not a <span>: the collapsed rail hides every
+    // span in the brand row, which is how the word goes and the mark stays.
+    `<nav class="app-shell__rail side-rail" aria-label="Primary">` +
+    `<a class="side-rail__brand rail-brand" href="/"><strong class="rail-mark">S</strong><span>STEWARD</span></a>` +
+    nav +
+    `<div class="side-rail__foot"><span class="side-rail__avatar">TS</span>` +
+    `<span class="side-rail__who"><strong>Local workspace</strong>no account</span></div>` +
+    `</nav>` +
     // Below 768px the rail is an off-canvas drawer; the scrim dismisses it and
     // the topbar's ☰ opens it. Both are GRAIN's — scripts/shell.js drives them.
     `<div class="app-shell__scrim" data-shell="rail-toggle"></div>` +
-    `<header class="app-shell__topbar topbar">` +
+    `<header class="app-shell__topbar">` +
     `<button type="button" class="btn topbar__btn topbar__menu" data-shell="rail-toggle"` +
     ` aria-label="Show navigation">${icon('menu', undefined, 'sm')}</button>` +
-    `<span class="topbar__crumbs">${crumbs}</span>${filterbar}` +
-    `<div class="topbar__actions">${themeToggle}${opts.actions ?? ''}${newBtn}</div></header>` +
+    `<span class="topbar-crumbs">${crumbs}</span>${filterbar}` +
+    `<div class="topbar-ctl topbar-actions">${themeToggle}${opts.actions ?? ''}${newBtn}</div></header>` +
     `<main class="app-shell__main pane">${body}</main>` +
     `</div>${drawer}${PAGE_ASSETS}</body></html>`
   );
@@ -652,10 +673,10 @@ const server = Bun.serve({
       GET: () => {
         const clients = services.repos.clients.list();
         const rows = clients.map(clientRow).join('')
-          || `<tr class="empty"><td colspan="3">No clients yet.</td></tr>`;
+          || `<tr class="data-table__empty"><td colspan="3">No clients yet.</td></tr>`;
         return layout('Clients',
           `<div class="page-head"><h1>Clients</h1><span class="sub">${clients.length} records</span></div>` +
-          `<div class="panel"><table class="dtable">` +
+          `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Code</th><th>Company info</th></tr></thead>` +
           `<tbody class="rows" data-surface="client-list">${rows}</tbody></table></div>`,
           { path: '/clients',
@@ -696,11 +717,11 @@ const server = Bun.serve({
         const clients = services.repos.clients.list();
         const customers = services.repos.customers.list();
         const rows = customers.map(customerRow).join('')
-          || `<tr class="empty"><td colspan="3">No customers yet.</td></tr>`;
+          || `<tr class="data-table__empty"><td colspan="3">No customers yet.</td></tr>`;
         const note = clients.length ? '' : `<p class="muted">Create a client first.</p>`;
         return layout('Customers',
           `<div class="page-head"><h1>Customers</h1><span class="sub">${customers.length} records</span></div>` +
-          `<div class="panel"><table class="dtable">` +
+          `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Code</th><th>Email</th></tr></thead>` +
           `<tbody class="rows" data-surface="customer-list">${rows}</tbody></table></div>${note}`,
           { path: '/customers',
@@ -887,10 +908,10 @@ const server = Bun.serve({
           `<td class="sub">${esc(d.mimeType || '—')}</td>` +
           `<td class="mono">${esc(fileSize(d.size))}</td>` +
           `<td class="mono">${esc(auditTime(d.createdAt))}</td></tr>`).join('')
-          || `<tr class="empty"><td colspan="6">No documents yet. Attach one from any record.</td></tr>`;
+          || `<tr class="data-table__empty"><td colspan="6">No documents yet. Attach one from any record.</td></tr>`;
         return layout('Files',
           `<div class="page-head"><h1>Files</h1><span class="sub">${docs.length} document${docs.length === 1 ? '' : 's'}</span></div>` +
-          `<div class="panel"><table class="dtable">` +
+          `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Belongs to</th><th>Source</th><th>Type</th><th>Size</th><th>Added</th></tr></thead>` +
           `<tbody class="rows" data-surface="document-list">${rows}</tbody></table></div>`,
           { path: '/files', filter: { target: '[data-surface="document-list"]', placeholder: 'Filter files…' } });

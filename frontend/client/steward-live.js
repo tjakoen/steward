@@ -28,12 +28,15 @@ function applyOp(o) {
 }
 
 // Recompute kanban column counts from the DOM after every op (moves change them).
-// Counts VISIBLE cards so an active filter shows filtered totals.
+// Counts VISIBLE cards so an active filter shows filtered totals — and counts
+// `.kanban-card` specifically, because the list also holds the empty-state item.
 function refreshBoardCounts() {
   document.querySelectorAll('.kanban-col').forEach((col) => {
     const count = col.querySelector('.count');
     const cards = col.querySelector('.kanban-cards');
-    if (count && cards) count.textContent = String([...cards.children].filter((c) => !c.hidden).length);
+    if (count && cards) {
+      count.textContent = String([...cards.querySelectorAll('.kanban-card')].filter((c) => !c.hidden).length);
+    }
   });
 }
 
@@ -47,16 +50,40 @@ function drawerParts() {
   const d = drawer(); if (!d) return null;
   return { d, body: d.querySelector('[data-drawer-body]'), title: d.querySelector('[data-drawer-title]') };
 }
+// The drawer is a modal dialog, and the three things that make it one are all
+// here: the page behind is `inert` (so Tab and the pointer cannot reach it, which
+// is also the focus trap — no key-by-key cycling to maintain), the pane stops
+// scrolling under it, and focus returns to whatever opened it. Whoever that was
+// is remembered on the way in; there is no way to ask for it on the way out.
+let drawerOpener = null;
+
 function openDrawer(title) {
   const p = drawerParts(); if (!p) return;
   if (title) p.title.textContent = title;
-  p.d.hidden = false;
-  const f = p.d.querySelector('input, select, textarea'); if (f) f.focus();
+  if (p.d.hidden) {
+    drawerOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.querySelector('.app-shell')?.setAttribute('inert', '');
+    document.documentElement.classList.add('is-drawer-open');
+    p.d.hidden = false;
+  }
+  // Focus the first field if the panel has one; a view panel has none, so the
+  // close button takes it — focus must land INSIDE a dialog either way.
+  const f = p.d.querySelector('input, select, textarea')
+    || p.d.querySelector('.drawer__head [data-drawer-close]');
+  if (f) f.focus();
 }
+
 function closeDrawer() {
-  const p = drawerParts(); if (!p) return;
+  const p = drawerParts(); if (!p || p.d.hidden) return;
   p.d.hidden = true;
   delete p.d.dataset.recordPath;
+  document.querySelector('.app-shell')?.removeAttribute('inert');
+  document.documentElement.classList.remove('is-drawer-open');
+  // Only if the opener is still on the page — a row can be replaced over SSE
+  // while the drawer is open, and focusing a detached node silently drops focus
+  // to <body>.
+  if (drawerOpener && document.contains(drawerOpener)) drawerOpener.focus();
+  drawerOpener = null;
 }
 
 // The create form ships inside the drawer; stash it so "+ New" can restore it
@@ -97,7 +124,14 @@ document.addEventListener('click', (e) => {
     loadPanel(rec.getAttribute('data-href'));
   }
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Escape clears the filter it is typed into before it closes anything: the box
+  // has the focus, so that is what the operator means by "undo this".
+  const t = e.target;
+  if (t instanceof HTMLElement && t.hasAttribute('data-filter') && t.value) { clearFilter(t); return; }
+  closeDrawer();
+});
 
 // ---- Drive picker ----------------------------------------------------------
 // Loaded only when asked for, so Google's SDK is not fetched by every page.
@@ -117,16 +151,42 @@ document.addEventListener('steward:refresh', () => {
 });
 
 // ---- instant client-side filter (topbar box filters a table body or board) -
-document.addEventListener('input', (e) => {
-  const inp = e.target;
-  if (!(inp instanceof HTMLElement) || !inp.hasAttribute('data-filter')) return;
+// It hides rows, so it has to SAY it hid them: a filtered list with no running
+// total reads exactly like the whole list, and the page-head count above it does
+// not move. The note is the honest total; Clear and Escape are the way out.
+function applyFilter(inp) {
   const scope = document.querySelector(inp.getAttribute('data-filter'));
   if (!scope) return;
   const q = inp.value.trim().toLowerCase();
-  scope.querySelectorAll('tr.row, li.kanban-card, li.audit__row').forEach((r) => {
-    r.hidden = q ? !r.textContent.toLowerCase().includes(q) : false;
+  const rows = scope.querySelectorAll('tr.row, li.kanban-card, li.audit__row');
+  let shown = 0;
+  rows.forEach((r) => {
+    const hide = q ? !r.textContent.toLowerCase().includes(q) : false;
+    r.hidden = hide;
+    if (!hide) shown++;
   });
   refreshBoardCounts();
+
+  const clear = inp.closest('.searchbar')?.querySelector('[data-filter-clear]');
+  if (clear) clear.hidden = !q;
+  const note = document.querySelector('[data-filter-note]');
+  if (note) note.textContent = q ? `Showing ${shown} of ${rows.length}` : '';
+}
+
+function clearFilter(inp) {
+  inp.value = '';
+  applyFilter(inp);
+  inp.focus();
+}
+
+document.addEventListener('input', (e) => {
+  const inp = e.target;
+  if (inp instanceof HTMLElement && inp.hasAttribute('data-filter')) applyFilter(inp);
+});
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof HTMLElement ? e.target.closest('[data-filter-clear]') : null;
+  const inp = btn?.closest('.searchbar')?.querySelector('[data-filter]');
+  if (inp) clearFilter(inp);
 });
 
 const es = new EventSource('/stream?session=' + session);
@@ -242,6 +302,30 @@ document.addEventListener('drop', (e) => {
   if (status && card && card.dataset.status !== status) postIntent('ticket.status', { id: dragId, status });
   dragId = null;
 });
+
+// ---- theme controls: report which setting is current ------------------------
+// GRAIN's theme.js owns the switching and records the choice on <html> (an unset
+// attribute means "auto" / the first flavor). Settings only ever RENDERED the
+// six buttons, so nothing said which one was on. This reads the attributes back;
+// theme.js is loaded before this module and its click listener therefore runs
+// first, so by the time this fires the attributes are already the new ones.
+function syncThemeButtons() {
+  const html = document.documentElement;
+  const scheme = html.getAttribute('data-color-scheme') || 'auto';
+  const flavors = (html.getAttribute('data-themes') || '').split(/\s+/).filter(Boolean);
+  const flavor = html.getAttribute('data-theme') || flavors[0] || '';
+  for (const [attr, current] of [['data-set-scheme', scheme], ['data-set-theme', flavor]]) {
+    document.querySelectorAll(`[${attr}]`).forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.getAttribute(attr) === current));
+    });
+  }
+}
+document.addEventListener('click', (e) => {
+  if (e.target instanceof HTMLElement && e.target.closest('[data-set-scheme], [data-set-theme], [data-toggle-scheme]')) {
+    syncThemeButtons();
+  }
+});
+syncThemeButtons();
 
 // Live search: type in the query box → customer.search intent → list replaced over SSE.
 let searchTimer;

@@ -170,20 +170,27 @@ function shell(title: string, body: string, opts: ShellOpts): string {
     NAV_FOOT.map((i) => navLink(i, path)).join('');
 
   const crumbs = opts.crumbs ?? `<strong>${esc(title)}</strong>`;
+  // The filter says what it hid and offers a way out of it: hiding rows with no
+  // running total lets a filtered list be read as the whole one.
   const filterbar = opts.filter
     ? `<div class="searchbar"><input type="search" data-filter="${esc(opts.filter.target)}" ` +
-      `placeholder="${esc(opts.filter.placeholder ?? 'Filter…')}" aria-label="Filter"></div>`
+      `placeholder="${esc(opts.filter.placeholder ?? 'Filter…')}" aria-label="Filter">` +
+      `<button type="button" class="linkish searchbar__clear" data-filter-clear hidden>Clear</button></div>` +
+      `<span class="filter-note" data-filter-note role="status"></span>`
     : '';
   const themeToggle = `<button type="button" class="btn topbar__btn" data-toggle-scheme aria-label="Toggle light/dark" title="Toggle light/dark">◐</button>`;
   const newBtn = opts.drawer ? `<button type="button" class="btn" data-variant="soft" data-drawer-open>+ ${esc(opts.drawer.title)}</button>` : '';
 
   // A single drawer per page: prefilled with the create form (if any); edit
   // buttons reuse it by swapping the title + loading an /edit fragment.
+  // It is a real dialog: it takes a name from its own heading (which the client
+  // rewrites per record), and the client marks the page behind it inert.
   const drawer =
-    `<aside id="app-drawer" class="drawer" hidden>` +
+    `<aside id="app-drawer" class="drawer" hidden role="dialog" aria-modal="true"` +
+    ` aria-labelledby="app-drawer-title">` +
     `<div class="drawer__backdrop" data-drawer-close></div>` +
     `<div class="drawer__panel"><header class="drawer__head">` +
-    `<h2 data-drawer-title>${esc(opts.drawer?.title ?? '')}</h2>` +
+    `<h2 id="app-drawer-title" data-drawer-title>${esc(opts.drawer?.title ?? '')}</h2>` +
     `<button type="button" class="btn topbar__btn" data-drawer-close aria-label="Close">✕</button></header>` +
     `<div class="drawer__body" data-drawer-body>${opts.drawer?.body ?? ''}</div></div></aside>`;
 
@@ -974,11 +981,17 @@ const server = Bun.serve({
         noticeHtml + state + `</div></section>` +
         `<section class="panel"><div class="panel__head"><h2>Appearance</h2></div><div class="panel__body">` +
         `<p class="muted">Theme is a GRAIN token re-skin, saved to this browser.</p>` +
-        `<div class="form-row"><label>Mode</label><div class="form-controls">` +
+        // Each row is a named GROUP of toggles, not a <label> wrapping nothing.
+        // Which one is on is a browser-side fact (GRAIN stores it on <html>), so
+        // `aria-pressed` is set by steward-live.js, not rendered here.
+        `<div class="form-row" role="group" aria-labelledby="set-mode-label">` +
+        `<span class="form-label" id="set-mode-label">Mode</span><div class="form-controls">` +
         `<button type="button" class="btn" data-set-scheme="light">Light</button>` +
         `<button type="button" class="btn" data-set-scheme="dark">Dark</button>` +
         `<button type="button" class="btn" data-set-scheme="auto">Auto (OS)</button></div></div>` +
-        `<div class="form-row" style="margin-top:1rem"><label>Flavor <span class="mono" data-theme-name></span></label><div class="form-controls">` +
+        `<div class="form-row" role="group" aria-labelledby="set-flavor-label" style="margin-top:1rem">` +
+        `<span class="form-label" id="set-flavor-label">Flavor <span class="mono" data-theme-name></span></span>` +
+        `<div class="form-controls">` +
         `<button type="button" class="btn" data-set-theme="sourdough">Sourdough</button>` +
         `<button type="button" class="btn" data-set-theme="baguette">Baguette</button>` +
         `<button type="button" class="btn" data-set-theme="brioche">Brioche</button></div></div>` +

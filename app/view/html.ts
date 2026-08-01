@@ -215,10 +215,14 @@ export function renderBoard(tickets: Ticket[], labelOf: (t: Ticket) => string): 
   const cols = TICKET_STATUSES.map((s) => {
     const list = byStatus[s] ?? [];
     const cards = list.map((t) => ticketCard(t, labelOf(t))).join('');
+    // The empty state ships on every column, always: CSS hides it whenever a
+    // visible card exists, so a column the FILTER emptied says the same thing an
+    // actually-empty one does, with nothing to keep in step.
     return (
       `<div class="kanban-col" data-status="${esc(s)}">` +
       `<h2>${esc(s)} <span class="count">${list.length}</span></h2>` +
-      `<ul class="kanban-cards" data-surface="ticket-col:${esc(s)}">${cards}</ul>` +
+      `<ul class="kanban-cards" data-surface="ticket-col:${esc(s)}">${cards}` +
+      `<li class="kanban-empty">Nothing in ${esc(s)}</li></ul>` +
       `</div>`
     );
   }).join('');

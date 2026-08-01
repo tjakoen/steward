@@ -27,28 +27,28 @@ tasks:
     status: done
   - id: measure
     title: A content measure on .pane, and pair the page-head count with its title
-    status: todo
+    status: done
   - id: board-height
     title: Kanban columns stop stretching; per-column empty state
-    status: todo
+    status: done
   - id: narrow
     title: 700px — collapse the rail instead of spending 34% of the window on it
     status: todo
   - id: row-keyboard
     title: Rows reachable and openable by keyboard, to the SAME place as a click
-    status: todo
+    status: done
   - id: drawer-semantics
     title: Dialog semantics + scroll lock + a backdrop that actually dims in dark
-    status: todo
+    status: done
   - id: chat-affordances
     title: Chat close button, Escape, aria-expanded, labelled panel, disabled send
-    status: todo
+    status: done
   - id: settings-state
     title: Mode/flavor buttons show which one is current (aria-pressed), real labels
-    status: todo
+    status: done
   - id: filter-feedback
     title: Filter reports what it hid, and can be cleared
-    status: todo
+    status: done
   - id: audit-verbs
     title: Activity speaks English, not diff keys
     status: todo
@@ -274,6 +274,72 @@ at 1440px.
   AI's line renders Redaction 35 through GRAIN's own `data-grade`, not a STEWARD font rule.
 - `.board-col` was renamed to `.kanban-col` alongside the three collisions. Not a collision,
   but leaving it would have split the board's vocabulary across two names.
+
+## What the layout / interaction pass did (2026-08-01)
+
+Seven more tasks are done — everything above except `narrow`, which stays for 0007, and the
+three content tasks (`audit-verbs`, `home`, `nav-icons`). `bun test` is 81 green, `tsc` is
+clean, and every claim below was measured in a headless browser on `PORT=3211` at 1440px in
+both schemes.
+
+- **The board stops at its cards.** `flex: 1 1 auto; min-height: 22rem` became `flex: 0 1 auto;
+  min-height: 0`: it can still SHRINK to the pane (columns then scroll internally, headers
+  staying put) but no longer STRETCHES past its content. Six cards: 344px of board in an 848px
+  pane, was the full 848. After a drag moved a card: 442px. Still capped.
+- **Every column ships an empty state, and CSS decides when to show it.**
+  `.kanban-cards:has(.kanban-card:not([hidden])) .kanban-empty { display: none }` reads the
+  live hidden state, so a column the *filter* emptied says the same thing an actually-empty one
+  does — the case a JS-maintained empty state gets wrong. It also forced a fix to
+  `refreshBoardCounts`, which counted `cards.children` and would have counted the placeholder;
+  it now counts `.kanban-card`.
+- **The filter says what it hid.** It removed rows and reported nothing, so a filtered list read
+  exactly like the whole one. Now a `role="status"` note next to the box — "Showing 2 of 6" on
+  the board, "Showing 6 of 20" on Activity — plus a Clear button that appears only when there is
+  something to clear, and Escape *inside the box* clears it instead of closing the drawer.
+- **The count sits beside the title it counts.** `margin-left: auto` put "2 records" at the far
+  edge of the pane; measured on Activity, 1100px from the "Activity" it belongs to. Now 12px.
+- **A measure on the prose, not on the pane.** Tables want every pixel; sentences do not.
+  Settings' paragraphs run 510px in a 1204px pane, and the Clients table's free-text column is
+  capped at 52ch (691px) while the table still takes the full width.
+- **The drawer is a dialog.** `role="dialog"`, `aria-modal`, named by its own heading (which the
+  client rewrites per record — it read "Review Meeting"), the page behind marked `inert`, the
+  pane's `overflow` locked, and focus restored to the exact element that opened it. `inert` is
+  also the focus trap: a `.focus()` call aimed at a nav link behind the drawer is refused and
+  focus stays on the close button — no key-by-key Tab cycling to maintain.
+- **A backdrop that works in dark.** `rgba(0,0,0,.32)` over a near-black pane is not a scrim.
+  Now `.5` plus `backdrop-filter: blur(2px)` — the blur is what carries the separation, and it
+  does not depend on the surface underneath being light.
+- **The chat panel can be left.** A close button, Escape (which `stopPropagation`s, so one press
+  does not also close the record drawer — verified with both open), `aria-expanded` +
+  `aria-controls` on the toggle, a name on the panel, and focus that moves in on open and back
+  to the toggle on close.
+- **The composer is disabled while a reply streams.** The `:disabled` styling had existed since
+  0005 with nothing ever setting the property. It now goes disabled on submit and re-enables on
+  the `type` op the server marks `done` — verified end-to-end against Ollama, and a second
+  submit mid-reply is refused with the text left in the box rather than sent twice. A 60s
+  backstop clears it if a reply never finishes: a permanently dead composer is worse than a
+  second question arriving mid-answer.
+- **Settings says which theme is current.** Six buttons, no state. `aria-pressed` is now set by
+  `steward-live.js` from the attributes GRAIN's `theme.js` writes on `<html>` (theme.js loads
+  first, so its click handler has already run), and each row is a named `role="group"` instead
+  of a `<label>` wrapping no control.
+- **The pressed state had to be filled, not outlined.** The first attempt used
+  `--color-accent-soft` — which in dark mode is the same value as `--color-surface`, so the
+  current setting was invisible on the panel it sat on, and `--color-accent` equals the button's
+  own text colour there too. It is now a full inversion, the way the nav marks its current page:
+  `#1C1B17` on `#E8E6DF` in light, `#E4E1D8` on `#232219` in dark.
+- **`row-keyboard` was already half true, and the missing half was visual.** The row's only tab
+  stop is the link inside it (no nested interactive controls), and activating that link fires a
+  click, which the delegated `[data-href]` handler intercepts — so the keyboard path already
+  landed in the drawer, on `/clients`, without navigating away. What was missing is that nothing
+  showed *which* row held focus; `tr:focus-within` now paints it in the hover colour, because
+  the row under the caret and the row under the cursor are the same thing. **Caveat:** the
+  browser tools here cannot send a real Enter key, so this was verified by activating the link
+  (the event Enter produces), not by the keystroke itself.
+
+**Noticed, not fixed:** the dev server logs `[Bun.serve]: request timed out after 10 seconds`
+and drops the `/stream` SSE connection when it goes quiet. `EventSource` reconnects, so the chat
+still worked, but it is worth an `idleTimeout` on `Bun.serve`. Unrelated to this plan.
 
 ## Roadmap note
 

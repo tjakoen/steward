@@ -1,10 +1,11 @@
 import { test, expect } from 'bun:test';
 import {
-  renderForm, customerSchema, esc, customerRow,
+  renderForm, customerSchema, esc, customerRow, renderBoard,
   auditTime, auditSummary, auditItem, auditList,
   fileSize, previewKind, documentChip,
 } from './html.ts';
-import type { AuditEntry, Client, Customer, DocumentRef } from '../domain/types.ts';
+import { TICKET_STATUSES } from '../domain/types.ts';
+import type { AuditEntry, Client, Customer, DocumentRef, Ticket } from '../domain/types.ts';
 
 const auditEntry = (over: Partial<AuditEntry> = {}): AuditEntry => ({
   id: 'aud_1', entity: 'customer', entityId: 'cus_1', action: 'update',
@@ -125,4 +126,22 @@ test('documentChip carries its surface, source and escapes the name', () => {
   expect(html).toContain('data-surface="document:doc_1"');
   expect(html).toContain('data-source="generated"');
   expect(html).not.toContain('<script>');
+});
+
+const ticket = (over: Partial<Ticket> = {}): Ticket => ({
+  id: 'tic_1', customerId: 'cus_1', ticketId: 'TXDOEX0001', title: 'Annual Review',
+  dateInitiated: '', status: 'In Progress', dateLastUpdated: '', waitingOn: '', waitingSince: '',
+  summary: '', nextAction: '', progressLog: [], commRefs: [], createdAt: '', updatedAt: '',
+  ...over,
+});
+
+test('every board column ships an empty state, so a filtered column can use it too', () => {
+  const html = renderBoard([ticket()], () => 'Doe, Jane');
+  // One per column, always — CSS hides it when the column shows a visible card,
+  // which is what makes it work for a column the FILTER emptied.
+  expect([...html.matchAll(/class="kanban-empty"/g)]).toHaveLength(TICKET_STATUSES.length);
+  expect(html).toContain(`Nothing in ${TICKET_STATUSES[0]}`);
+  // It lives inside the list, so it is not mistaken for a card: the count and
+  // the filter both address `.kanban-card`.
+  expect(html).not.toContain('class="kanban-empty" draggable');
 });

@@ -85,7 +85,7 @@
 /* topbar search (only where a page opts in) */
 .searchbar { flex: 1; max-width: 360px; position: relative; }
 .searchbar input {
-  width: 100%; padding: var(--space-2, .5rem) var(--space-3, .75rem) var(--space-2, .5rem) 30px;
+  width: 100%; padding: var(--space-2, .5rem) 3.6rem var(--space-2, .5rem) 30px;
   font: inherit; font-size: var(--text-sm, .875rem);
   border: 1px solid var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 4px);
   background: var(--color-bg, #E2E0D8); color: var(--color-fg, #1C1B17);
@@ -95,6 +95,17 @@
   content: "⌕"; position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
   color: var(--color-muted, #6E6C64); font-size: .95rem; pointer-events: none;
 }
+/* The browser's own search-clear is mouse-only and absent outside WebKit, so the
+   filter ships its own — reachable by Tab, and gone when there is nothing to clear. */
+.searchbar__clear { position: absolute; right: var(--space-3, .6rem); top: 50%; transform: translateY(-50%); }
+.searchbar__clear[hidden] { display: none; }
+/* What the filter hid. A filter that silently removes rows lets the operator
+   read a partial list as the whole one. */
+.filter-note {
+  font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.filter-note:empty { display: none; }
 
 /* The pane is a flex column ONLY so the kanban board can stretch to fill it.
    Everything else must keep its natural height — without this, a tall page
@@ -102,6 +113,15 @@
 .pane { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6, 1.5rem); display: flex; flex-direction: column; }
 .pane > *:not(.kanban) { flex: none; }
 .pane > :first-child { margin-top: 0; }
+
+/* A reading measure, on the prose surfaces only. The pane is edge to edge because
+   TABLES want every pixel of it — sentences do not, and Settings was running a
+   ~110ch line at 1440px. Cap the paragraphs and lists; leave the tables alone. */
+.pane > p, .panel__body p, .panel__body > ul, .panel__body > ol,
+.drawer__body p { max-width: 68ch; }
+/* Except the meta strips, which are wrapping chip rows that happen to be written
+   as <p> — a measure would break them onto extra lines. */
+.panel-meta, .lineage { max-width: none; }
 
 /* ---- Buttons ------------------------------------------------------------- */
 /* GRAIN owns the button; every control in STEWARD carries `class="btn"` and takes
@@ -127,9 +147,11 @@
 .topbar__actions a { text-decoration: none; }
 
 /* ---- Page header inside the pane ----------------------------------------- */
-.page-head { display: flex; align-items: baseline; gap: var(--space-4, 1rem); margin-bottom: var(--space-5, 1.25rem); }
+/* The count sits BESIDE the title it counts. Pushed to the far end (margin-left:
+   auto) it landed 1600px from "Clients" at 1440px, which is not a label. */
+.page-head { display: flex; align-items: baseline; gap: var(--space-3, .75rem); margin-bottom: var(--space-5, 1.25rem); }
 .page-head h1 { margin: 0; font-size: var(--text-xl, 1.3rem); font-weight: 600; }
-.page-head .sub { color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem); margin-left: auto; }
+.page-head .sub { color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem); }
 .back-link { display: inline-block; margin-bottom: var(--space-3, .75rem); font-size: var(--text-sm, .875rem); color: var(--color-muted, #6E6C64); text-decoration: none; }
 .back-link:hover { color: var(--color-fg, #1C1B17); }
 
@@ -158,9 +180,17 @@
 .dtable tbody tr:last-child td { border-bottom: 0; }
 .dtable tbody tr:hover td { background: var(--color-bg, #E2E0D8); }
 .dtable tbody tr[data-href] { cursor: pointer; }
+/* A row is opened through the link it contains — that link is the row's keyboard
+   path, so the row has to show when it holds focus, or tabbing through a table is
+   invisible. Same hue as hover: the row under the cursor and the row under the
+   caret are the same thing. */
+.dtable tbody tr:focus-within td { background: var(--color-bg, #E2E0D8); }
 .dtable td a { font-weight: 600; color: var(--color-fg, #1C1B17); text-decoration: none; }
 .dtable td a:hover { color: var(--color-accent, #1C1B17); }
 .dtable td .sub { color: var(--color-muted, #6E6C64); font-weight: 400; }
+/* Free text in a cell (a client's company info) will otherwise run the width of
+   the window. The table still takes the pane; this one column reads. */
+.dtable td.sub { max-width: 52ch; }
 .dtable .empty td { color: var(--color-muted, #6E6C64); text-align: center; padding: var(--space-6, 1.5rem); }
 .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64); }
 .swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 6px; border: 1px solid var(--color-line, rgba(0,0,0,.15)); }
@@ -185,7 +215,21 @@
 .fb input[type="color"] { padding: 2px; height: 2.2rem; }
 .fb textarea { min-height: 4rem; resize: vertical; }
 .fb [data-field-value] { font-size: var(--text-sm, .875rem); }
-.form-controls { display: flex; gap: var(--space-2, .5rem); margin-top: var(--space-1, .25rem); }
+.form-controls { display: flex; flex-wrap: wrap; gap: var(--space-2, .5rem); margin-top: var(--space-1, .25rem); }
+/* A settings group's name, outside a form: a <label> wrapping no control names
+   nothing, so the group carries the name and this is the text of it. */
+.form-label { font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64); }
+/* Which one is current. GRAIN's .btn has no pressed state, so STEWARD supplies
+   one — keyed on the same ARIA a screen reader announces, not a parallel class.
+   FILLED, the way the nav marks its current page, because outlining it does not
+   survive dark: there --color-accent equals the button's own text colour and
+   --color-accent-soft equals the panel it sits on, so an outlined pressed state
+   is invisible in exactly one of the two schemes. */
+.form-controls [aria-pressed="true"] {
+  border-color: var(--color-accent, #1C1B17);
+  background: var(--color-accent, #1C1B17);
+  color: var(--color-accent-contrast, #E2E0D8);
+}
 .form-status { font-size: var(--text-xs, .8125rem); }
 .form-status[data-ok="true"] { color: var(--color-success, #1C1B17); }
 .form-status[data-ok="false"] { color: var(--color-danger, #c33); font-weight: 600; }
@@ -202,8 +246,10 @@
 /* `.kanban*`, not `.board`/`.card`: GRAIN's .board is a reading measure and its
    .card a content tile, and a drag-and-drop ticket board is neither. A ticket
    board is STEWARD's own concept, so it carries STEWARD's own name.
-   Board fills the pane; each column scrolls internally so the header row stays put. */
-.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3, .75rem); margin: 0; flex: 1 1 auto; min-height: 22rem; }
+   The board takes its height from its cards and stops there: `flex: 0 1 auto` lets
+   it SHRINK to the pane when there are many (each column then scrolls internally,
+   header row staying put) without STRETCHING to the viewport when there is one. */
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3, .75rem); margin: 0; flex: 0 1 auto; min-height: 0; }
 .kanban-col {
   border: 1px solid var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 8px);
   background: var(--color-surface, #E8E6DF); padding: var(--space-3, .6rem);
@@ -224,8 +270,19 @@
   background: var(--color-bg, #E2E0D8);
 }
 .kanban-card.dragging { opacity: .4; }
+.kanban-card:focus-within { border-color: var(--color-accent, #1C1B17); }
 .kanban-card a { text-decoration: none; color: var(--color-fg, #1C1B17); font-weight: 600; font-size: var(--text-sm, .875rem); }
 .kanban-card .mono { font-size: .72rem; }
+
+/* An empty column says so — and so does a column the FILTER emptied, which is the
+   case a JS-maintained empty state gets wrong. `:has` reads the live hidden state,
+   so the one rule covers both and there is nothing to keep in step. */
+.kanban-empty {
+  padding: var(--space-3, .55rem); text-align: center;
+  font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+  border: 1px dashed var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 6px);
+}
+.kanban-cards:has(.kanban-card:not([hidden])) .kanban-empty { display: none; }
 
 .progress { list-style: none; padding: 0; margin: var(--space-3, .75rem) 0; display: grid; gap: var(--space-2, .35rem); }
 .progress li { font-size: var(--text-sm, .875rem); border-left: 2px solid var(--color-line, rgba(28,27,23,.14)); padding-left: var(--space-3, .6rem); }
@@ -236,7 +293,17 @@
 /* ---- Slide-in drawer (New / Edit forms) ---------------------------------- */
 .drawer[hidden] { display: none; }
 .drawer { position: fixed; inset: 0; z-index: 60; }
-.drawer__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.32); animation: drawer-fade .15s ease; }
+/* A scrim of black over a near-black pane is not a scrim: in dark mode the old
+   .32 left the list behind fully legible and the drawer read as a sidebar rather
+   than a modal. The blur is what carries the separation in BOTH schemes — it does
+   not depend on the surface underneath being light. */
+.drawer__backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,.5);
+  backdrop-filter: blur(2px); animation: drawer-fade .15s ease;
+}
+/* Scroll lock. `inert` stops Tab and clicks reaching the page behind, but not the
+   wheel — and this shell's scroller is the pane, not the document. */
+.is-drawer-open .pane { overflow: hidden; }
 .drawer__panel {
   position: absolute; top: 0; right: 0; height: 100vh; width: min(440px, 100vw);
   display: flex; flex-direction: column; overflow: hidden;
@@ -363,7 +430,7 @@ form.inline { display: inline; }
 .chat-panel__head strong::before {
   content: "✦"; margin-right: 6px; color: var(--color-accent, var(--color-fg, #1C1B17));
 }
-.chat-status { font-size: var(--text-xs, .75rem); color: var(--color-muted, #666); text-align: right; }
+.chat-status { margin-left: auto; font-size: var(--text-xs, .75rem); color: var(--color-muted, #666); text-align: right; }
 
 /* The thread itself is GRAIN's chat-log + chat-message: the bubble, its border,
    its alignment and the grain face for AI speech all come from there. STEWARD
@@ -382,4 +449,6 @@ form.inline { display: inline; }
   font: inherit; background: var(--color-bg, #E2E0D8); color: inherit;
 }
 .chat-send { background: var(--color-accent, #1C1B17); color: var(--color-accent-contrast, #fff); border-color: var(--color-accent, #1C1B17); }
-.chat-composer textarea:disabled { opacity: .5; cursor: not-allowed; }
+/* The composer is dead while a reply streams, and now says so — the styling was
+   here before anything ever set the disabled property. */
+.chat-composer textarea:disabled, .chat-send:disabled { opacity: .5; cursor: not-allowed; }

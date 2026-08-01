@@ -36,10 +36,11 @@ import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
 import {
   esc, renderForm, customerSchema, clientSchema, customerRow, clientRow, personsLabel,
   ticketSchema, ticketEditSchema, renderBoard, progressList, auditList, auditItem, auditTime,
-  documentChips, fileSize, previewKind,
+  documentChips, fileSize, previewKind, icon, type IconName,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
-import type { AuditEntity, Client, Customer, DocumentRef, Ticket } from './app/domain/types.ts';
+import type { AuditEntity, Client, Customer, DocumentRef, Ticket, TicketStatus } from './app/domain/types.ts';
+import { TICKET_STATUSES } from './app/domain/types.ts';
 import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
@@ -122,22 +123,25 @@ const servePage = makePageServer(bunRuntime, config.pagesDir, renderAppPage, PAG
 // request so the nav always reflects the DB. Internal PROOF "Plans" is
 // intentionally absent from the nav (dev-only surface, still reachable by URL).
 
-interface NavItem { label: string; href: string; ico: string; count?: () => number; }
+// Nav marks are GRAIN sprite glyphs, not text characters: `◆ ▤ ☰ ◧ ❐ ↻ ⚙ ?`
+// came from eight different Unicode blocks and sat on eight different baselines
+// at eight optical weights. The sprite is one 24×24 grid at one stroke width.
+interface NavItem { label: string; href: string; ico: IconName; count?: () => number; }
 const NAV_MAIN: NavItem[] = [
-  { label: 'Home', href: '/', ico: '◆' },
+  { label: 'Home', href: '/', ico: 'loop' },
 ];
 const NAV_WORK: NavItem[] = [
-  { label: 'Clients', href: '/clients', ico: '▤', count: () => services.repos.clients.list().length },
-  { label: 'Customers', href: '/customers', ico: '☰', count: () => services.repos.customers.list().length },
-  { label: 'Tickets', href: '/tickets', ico: '◧', count: () => services.repos.tickets.list().length },
+  { label: 'Clients', href: '/clients', ico: 'rules', count: () => services.repos.clients.list().length },
+  { label: 'Customers', href: '/customers', ico: 'pin', count: () => services.repos.customers.list().length },
+  { label: 'Tickets', href: '/tickets', ico: 'tasks', count: () => services.repos.tickets.list().length },
 ];
 const NAV_ACTIVITY: NavItem[] = [
-  { label: 'Files', href: '/files', ico: '❐', count: () => services.listDocuments().length },
-  { label: 'Activity', href: '/activity', ico: '↻' },
+  { label: 'Files', href: '/files', ico: 'files', count: () => services.listDocuments().length },
+  { label: 'Activity', href: '/activity', ico: 'traces' },
 ];
 const NAV_FOOT: NavItem[] = [
-  { label: 'Help', href: '/help', ico: '?' },
-  { label: 'Settings', href: '/settings', ico: '⚙' },
+  { label: 'Help', href: '/help', ico: 'knowledge' },
+  { label: 'Settings', href: '/settings', ico: 'settings' },
 ];
 
 const isActive = (item: NavItem, path: string): boolean =>
@@ -146,7 +150,7 @@ const isActive = (item: NavItem, path: string): boolean =>
 const navLink = (item: NavItem, path: string): string => {
   const active = isActive(item, path) ? ' aria-current="page"' : '';
   const count = item.count ? `<span class="nav__count">${item.count()}</span>` : '';
-  return `<a href="${item.href}"${active}><span class="nav__ico" aria-hidden="true">${item.ico}</span>${esc(item.label)}${count}</a>`;
+  return `<a href="${item.href}"${active}>${icon(item.ico, 'nav__ico', 'sm')}${esc(item.label)}${count}</a>`;
 };
 
 interface ShellOpts {
@@ -191,7 +195,8 @@ function shell(title: string, body: string, opts: ShellOpts): string {
     `<div class="drawer__backdrop" data-drawer-close></div>` +
     `<div class="drawer__panel"><header class="drawer__head">` +
     `<h2 id="app-drawer-title" data-drawer-title>${esc(opts.drawer?.title ?? '')}</h2>` +
-    `<button type="button" class="btn topbar__btn" data-drawer-close aria-label="Close">✕</button></header>` +
+    `<button type="button" class="btn topbar__btn" data-drawer-close aria-label="Close">` +
+    `${icon('close', undefined, 'sm')}</button></header>` +
     `<div class="drawer__body" data-drawer-body>${opts.drawer?.body ?? ''}</div></div></aside>`;
 
   return (
@@ -421,6 +426,100 @@ async function documentPanel(d: DocumentRef, inDrawer = false): Promise<string> 
     `<button type="submit" class="btn">Remove</button></form></div>` +
     fullPageLink(`/files/${esc(d.id)}`, inDrawer) +
     `</div>`
+  );
+}
+
+// ---- home ------------------------------------------------------------------
+// The landing route answers three questions in the order an operator asks them:
+// how big is the workspace, what is waiting on me, and what changed since I was
+// last here. Everything on it is a link INTO the work — Home is a doorway, not
+// a destination, so it holds no controls of its own.
+
+/** A KPI tile that goes somewhere (GRAIN's `.stat`, worn by a link). */
+const statTile = (href: string, value: number, label: string, sub?: string): string =>
+  `<a class="stat home-stat" href="${href}">` +
+  `<span class="stat__value">${value}</span><span class="stat__label">${esc(label)}</span>` +
+  (sub ? `<span class="stat__sub">${esc(sub)}</span>` : '') +
+  `</a>`;
+
+const STATUS_MARK: Record<TicketStatus, IconName> = {
+  'Not Commenced': 'plus',
+  'In Progress': 'loop',
+  'Waiting': 'pin',
+  'Completed': 'check',
+};
+
+function homePage(): string {
+  const clients = services.repos.clients.list();
+  const customers = services.repos.customers.list();
+  const tickets = services.repos.tickets.list();
+  const docs = services.listDocuments();
+  const open = tickets.filter((t) => t.status !== 'Completed');
+  const waiting = tickets.filter((t) => t.status === 'Waiting');
+  const recent = services.repos.audit.recent(8);
+
+  const ticketLink = (t: Ticket): string =>
+    `<a href="/tickets/${esc(t.id)}" data-href="/tickets/${esc(t.id)}">${esc(t.ticketId)} · ${esc(t.title)}</a>`;
+
+  const statusRows = TICKET_STATUSES.map((s) => {
+    const n = tickets.filter((t) => t.status === s).length;
+    return (
+      `<li class="status-list__item"${n ? '' : ' data-state="waiting"'}>` +
+      `<span class="status-list__mark">${icon(STATUS_MARK[s], undefined, 'sm')}</span>` +
+      `<span class="status-list__title"><a href="/tickets">${esc(s)}</a></span>` +
+      `<span class="status-list__meta">${n}</span></li>`
+    );
+  }).join('');
+
+  // "Waiting" is the only status that names something outside STEWARD's control,
+  // which makes it the one list worth surfacing before the operator goes looking.
+  const waitingRows = waiting.length
+    ? `<ul class="status-list">${waiting.slice(0, 6).map((t) =>
+        `<li class="status-list__item">` +
+        `<span class="status-list__mark">${icon('pin', undefined, 'sm')}</span>` +
+        `<span class="status-list__title">${ticketLink(t)}</span>` +
+        `<span class="status-list__meta">${esc(t.waitingOn || 'unspecified')}</span></li>`).join('')}</ul>` +
+      (waiting.length > 6 ? `<p class="panel-meta"><a href="/tickets">All ${waiting.length} waiting tickets</a></p>` : '')
+    : `<p class="muted">Nothing is waiting on anyone else.</p>`;
+
+  const activityRows = recent.length
+    ? `<ul class="audit">${recent.map((e) => auditItem(e, recordRef(e.entity, e.entityId))).join('')}</ul>` +
+      `<p class="panel-meta"><a href="/activity">All activity</a></p>`
+    : `<p class="muted">No activity recorded yet.</p>`;
+
+  // An empty workspace should say so, and say what to do about it, rather than
+  // rendering four zeroes and three empty panels.
+  const empty = !clients.length && !customers.length && !tickets.length;
+  if (empty) {
+    return (
+      `<div class="page-head"><h1>Home</h1><span class="sub">Empty workspace</span></div>` +
+      `<section class="panel"><div class="panel__head"><h2>Nothing here yet</h2></div><div class="panel__body">` +
+      `<p>STEWARD tracks work as <strong>tickets</strong> about a <strong>customer</strong>, who belongs to a ` +
+      `<strong>client</strong> — the business whose branding the generated documents carry. Start with a client.</p>` +
+      `<p><a class="btn" data-variant="soft" href="/clients">Go to Clients</a></p>` +
+      `<p class="muted">To look around with data first, load the sample workspace: ` +
+      `<code>bun run seed:demo</code>.</p>` +
+      `</div></section>`
+    );
+  }
+
+  return (
+    `<div class="page-head"><h1>Home</h1><span class="sub">Local workspace</span></div>` +
+    `<div class="home-stats">` +
+    statTile('/tickets', open.length, open.length === 1 ? 'open ticket' : 'open tickets',
+      `${tickets.length} in total`) +
+    statTile('/clients', clients.length, clients.length === 1 ? 'client' : 'clients') +
+    statTile('/customers', customers.length, customers.length === 1 ? 'customer' : 'customers') +
+    statTile('/files', docs.length, docs.length === 1 ? 'document' : 'documents') +
+    `</div>` +
+    `<div class="home-cols">` +
+    `<section class="panel"><div class="panel__head"><h2>Tickets by status</h2></div>` +
+    `<div class="panel__body"><ul class="status-list">${statusRows}</ul></div></section>` +
+    `<section class="panel"><div class="panel__head"><h2>Waiting on someone else</h2></div>` +
+    `<div class="panel__body">${waitingRows}</div></section>` +
+    `</div>` +
+    `<section class="panel"><div class="panel__head"><h2>Recent activity</h2></div>` +
+    `<div class="panel__body">${activityRows}</div></section>`
   );
 }
 
@@ -914,28 +1013,7 @@ const server = Bun.serve({
     },
 
     // --- Home + Settings (shell routes, replacing the static pages) ---
-    '/': {
-      GET: () => layout('Home',
-        `<div class="page-head"><h1>Home</h1><span class="sub">Foundation build</span></div>` +
-        `<p class="muted">AI-first admin cockpit — task-ticket CRM with branded document generation.</p>` +
-        `<section class="panel"><div class="panel__head"><h2>Proof of life</h2></div><div class="panel__body">` +
-        `<p class="muted">Sends a real Intent through the single door. The reasoner performs an audited SQLite write and streams a render op back over SSE.</p>` +
-        `<button type="button" class="btn" data-variant="soft" id="run-demo">Run demo intent</button>` +
-        `<div id="reflection" data-surface="reflection" class="log" aria-live="polite"></div>` +
-        `<script type="module">
-          const session = crypto.randomUUID();
-          const log = document.getElementById('reflection');
-          const line = (t) => { const p = document.createElement('p'); p.textContent = t; log.prepend(p); };
-          const es = new EventSource('/stream?session=' + session);
-          es.addEventListener('op', (e) => { try { const op = JSON.parse(e.data); if (op.text) line(op.text); } catch {} });
-          document.getElementById('run-demo').addEventListener('click', async () => {
-            const res = await fetch('/intent', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ session, screen: 'home', surface: 'screen', action: 'demo.run', payload: {} }) });
-            line('intent sent → ' + res.status);
-          });
-        </script></div></section>`,
-        { path: '/' }),
-    },
+    '/': { GET: () => layout('Home', homePage(), { path: '/' }) },
     '/settings': {
       GET: async (req: Request) => {
         const notice = new URL(req.url).searchParams.get('google');

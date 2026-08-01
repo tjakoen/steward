@@ -51,13 +51,13 @@ tasks:
     status: done
   - id: audit-verbs
     title: Activity speaks English, not diff keys
-    status: todo
+    status: done
   - id: home
     title: Replace the 0001 "proof of life" dev page with a real Home
-    status: todo
+    status: done
   - id: nav-icons
     title: Nav glyphs → GRAIN's icon system
-    status: todo
+    status: done
 ---
 
 # STEWARD — UI audit (0008)
@@ -340,6 +340,51 @@ both schemes.
 **Noticed, not fixed:** the dev server logs `[Bun.serve]: request timed out after 10 seconds`
 and drops the `/stream` SSE connection when it goes quiet. `EventSource` reconnects, so the chat
 still worked, but it is worth an `idleTimeout` on `Bun.serve`. Unrelated to this plan.
+
+## What the content pass did (2026-08-01)
+
+The last three tasks. `narrow` is the only one left in this plan and it lands in 0007.
+`bun test` is 84 green (81 + three for the icon helper and the new summaries), `tsc` is clean,
+and everything below was measured on `PORT=3211` at 1440px and 700px in both schemes.
+
+- **The timeline says what happened.** `auditSummary` used to print the diff's own keys —
+  "persons, email, phone, notes", "attached, source", "removedDocument". It now withholds field
+  names for the same reason it always withheld values: a column name is the shape of the
+  storage, not the shape of the work. Measured against the real feed, the twelve distinct row
+  shapes now read "file uploaded", "document generated", "Drive file linked", "document
+  removed", "progress logged", "4 details changed", "status set to In Progress". The action verb
+  is past tense too (`auditVerb`), so a row is a sentence: *created*, *updated*, *archived*.
+  **One value is deliberately kept**: the ticket status. It is a published workflow state, it
+  carries nothing personal, and it is the thing a reader of the timeline is looking for — a
+  "1 detail changed" where "status set to Completed" belongs would be withholding for its own
+  sake. A create writes no summary at all: "created TXDOEX0001 · Review Meeting" already said it.
+- **Home is a doorway now, not a proof of life.** The 0001 page (a "Run demo intent" button and
+  an inline `<script>`) is gone. In its place: a strip of four GRAIN `.stat` tiles — open tickets
+  (with the total as a sub-line), clients, customers, documents — each one a LINK into the list
+  behind it, then tickets-by-status, what is waiting on someone else, and the eight most recent
+  audit rows. No controls of its own; every number goes somewhere. The tiles are GRAIN's `.stat`
+  worn by an `<a>`; `.home-stat` only resets link colour and lights the border on hover.
+- **An empty workspace says so.** With no clients, customers or tickets, four zeroes and three
+  empty panels is a worse answer than a sentence. Home then explains the client → customer →
+  ticket shape, points at Clients, and names `bun run seed:demo`. Verified against a second
+  server on an empty `STEWARD_DB`, not by reading the branch.
+- **The nav wears GRAIN's sprite.** `◆ ▤ ☰ ◧ ❐ ↻ ⚙ ?` came from eight Unicode blocks at eight
+  optical weights on eight baselines; they are now eight `<use href="/assets/sprite.svg#…">`
+  glyphs on one 24×24 grid at one stroke width, inheriting `currentColor` (so the current page's
+  inverted nav row inverts its icon too). Home `loop`, Clients `rules`, Customers `pin`,
+  Tickets `tasks`, Files `files`, Activity `traces`, Help `knowledge`, Settings `settings`; the
+  drawer's `✕` is the sprite's `close`. Measured 16×16 in both schemes, `getBBox` non-zero on
+  every one — a misnamed symbol renders **nothing**, silently, which is why `html.test.ts` now
+  asserts every name STEWARD uses exists in the sprite file.
+- **Sizing came from GRAIN, not from STEWARD.** `.nav a .nav__ico` used to set `width: 18px` and
+  nothing else. That is the exact shape of the `button.icon` bug this plan opened with (a width
+  override with no height, clipping the glyph), so the rule now sets only `opacity` and lets
+  GRAIN's `.icon` own both dimensions, with `data-size="sm"`.
+
+**Noticed, not fixed:** `/ai/manifest` still advertises a `reflection` target and the reasoner
+still answers `demo.run`, but no page renders that surface any more — the demo intent is now
+reachable only by POSTing to `/intent` directly. Harmless (an op streams to nothing), but the
+manifest describes a screen that no longer exists; fold it into 0009-shell.
 
 ## Roadmap note
 

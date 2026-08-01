@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import {
   renderForm, customerSchema, esc, customerRow, renderBoard,
   auditTime, auditSummary, auditItem, auditList,
-  fileSize, previewKind, documentChip,
+  fileSize, previewKind, documentChip, icon,
 } from './html.ts';
 import { TICKET_STATUSES } from '../domain/types.ts';
 import type { AuditEntry, Client, Customer, DocumentRef, Ticket } from '../domain/types.ts';
@@ -56,6 +56,28 @@ test('customerRow escapes and exposes a per-row surface', () => {
   expect(customerRow(c)).toContain('Doe, Jane');
 });
 
+// ---- icons -----------------------------------------------------------------
+
+test('icon references GRAIN\'s sprite and hides itself from the accessibility tree', () => {
+  const html = icon('tasks', 'nav__ico', 'sm');
+  expect(html).toContain('href="/assets/sprite.svg#tasks"');
+  // GRAIN's .icon is what sizes the box; a STEWARD class rides beside it
+  expect(html).toContain('class="icon nav__ico"');
+  expect(html).toContain('data-size="sm"');
+  expect(html).toContain('aria-hidden="true"');
+});
+
+test('every icon STEWARD names exists in the sprite it points at', async () => {
+  const sprite = await Bun.file(
+    new URL('../../node_modules/@tjakoen/grain/assets/sprite.svg', import.meta.url).pathname,
+  ).text();
+  // A misnamed glyph renders nothing at all — silently, with no error anywhere.
+  for (const name of ['loop', 'rules', 'pin', 'tasks', 'files', 'traces', 'knowledge',
+    'settings', 'close', 'plus', 'check'] as const) {
+    expect(sprite).toContain(`id="${name}"`);
+  }
+});
+
 // ---- audit trail -----------------------------------------------------------
 
 test('auditTime renders an ISO stamp as date + minutes', () => {
@@ -63,25 +85,46 @@ test('auditTime renders an ISO stamp as date + minutes', () => {
   expect(auditTime('nonsense')).toBe('nonsense');
 });
 
-test('auditSummary names changed fields but never their values', () => {
+test('auditSummary counts what changed and leaks neither values nor field names', () => {
   const e = auditEntry({ diff: JSON.stringify({ id: 'cus_1', email: 'secret@example.com', notes: 'private' }) });
   const summary = auditSummary(e);
-  expect(summary).toBe('email, notes');
+  expect(summary).toBe('2 details changed');
   expect(summary).not.toContain('secret@example.com');
   expect(summary).not.toContain('private');
+  expect(summary).not.toContain('email');
+  expect(summary).not.toContain('notes');
 });
 
-test('auditSummary special-cases status moves and progress entries', () => {
-  expect(auditSummary(auditEntry({ diff: JSON.stringify({ status: 'Completed' }) }))).toBe('status → Completed');
-  expect(auditSummary(auditEntry({ diff: JSON.stringify({ addProgress: { date: '', update: 'x' } }) }))).toBe('progress logged');
+test('auditSummary says what happened, in English', () => {
+  const s = (diff: unknown, over: Partial<AuditEntry> = {}) =>
+    auditSummary(auditEntry({ diff: JSON.stringify(diff), ...over }));
+  // the ticket status is the one value kept: a published workflow state, and
+  // the thing a reader of the timeline is looking for
+  expect(s({ status: 'Completed' })).toBe('status set to Completed');
+  expect(s({ status: 'Waiting', waitingOn: 'the council' }))
+    .toBe('status set to Waiting, and 1 other detail changed');
+  expect(s({ addProgress: { date: '', update: 'x' } })).toBe('progress logged');
+  expect(s({ attached: 'passport.pdf', source: 'upload' })).toBe('file uploaded');
+  expect(s({ attached: 'TCK-1.pdf', source: 'generated' })).toBe('document generated');
+  expect(s({ linked: 'Q3 plan.docx' })).toBe('Drive file linked');
+  expect(s({ removedDocument: 'passport.pdf' })).toBe('document removed');
+  // a create writes every field; the row's verb already said "created"
+  expect(s({ title: 'x', status: 'Not Commenced' }, { action: 'create' })).toBe('');
   expect(auditSummary(auditEntry({ diff: 'not json' }))).toBe('');
 });
 
-test('auditItem records who acted and escapes the action', () => {
+test('auditSummary never repeats a document name', () => {
+  for (const diff of [{ attached: 'secret.pdf', source: 'upload' }, { linked: 'secret.pdf' },
+    { removedDocument: 'secret.pdf' }]) {
+    expect(auditSummary(auditEntry({ diff: JSON.stringify(diff) }))).not.toContain('secret.pdf');
+  }
+});
+
+test('auditItem records who acted and puts the action in the past tense', () => {
   const html = auditItem(auditEntry({ actor: 'ai', action: 'create' }));
   expect(html).toContain('data-actor="ai"');
   expect(html).toContain('2026-07-31 09:12');
-  expect(html).toContain('create');
+  expect(html).toContain('created');
 });
 
 test('auditItem treats labelHtml as markup so the feed can link records', () => {

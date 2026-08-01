@@ -12,6 +12,31 @@ export function esc(s: unknown): string {
     .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
+// ---- icons -----------------------------------------------------------------
+// GRAIN ships a sprite of 24×24 line glyphs at /assets/sprite.svg and a sized
+// `.icon` box to hang them in. Referencing the sprite (rather than inlining the
+// paths) keeps one copy of every glyph and lets it be cached like any asset.
+
+/** Glyph names carried by GRAIN's sprite — a typo here renders nothing at all. */
+export type IconName =
+  | 'loop' | 'tasks' | 'knowledge' | 'rules' | 'traces' | 'settings' | 'menu'
+  | 'close' | 'chevron-left' | 'chevron-right' | 'send' | 'search' | 'spark'
+  | 'check' | 'plus' | 'files' | 'pin';
+
+/**
+ * One sprite glyph. Decorative by default: every place STEWARD uses an icon
+ * also carries a visible label or an `aria-label`, and announcing the same
+ * thing twice is noise. `.icon` is GRAIN's box and sizes BOTH dimensions —
+ * a STEWARD class rides alongside it for placement, never instead of it.
+ */
+export function icon(name: IconName, className?: string, size?: 'sm' | 'lg'): string {
+  return (
+    `<svg class="icon${className ? ` ${esc(className)}` : ''}"` +
+    `${size ? ` data-size="${size}"` : ''} aria-hidden="true" focusable="false">` +
+    `<use href="/assets/sprite.svg#${name}"></use></svg>`
+  );
+}
+
 // ---- FormBuilder ----------------------------------------------------------
 
 export type FieldType = 'text' | 'email' | 'tel' | 'color' | 'textarea' | 'select';
@@ -283,26 +308,57 @@ export function auditTime(iso: string): string {
   return iso.length >= 16 ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : iso;
 }
 
+const AUDIT_VERBS: Record<string, string> = {
+  create: 'created', update: 'updated', archive: 'archived', delete: 'deleted',
+};
+
+/** The stored action verb as English. Unknown verbs pass through unchanged. */
+export function auditVerb(action: string): string {
+  return AUDIT_VERBS[action] ?? action;
+}
+
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
 /**
- * Summarise an audit row's `diff` (a JSON blob of the change) as readable
- * field names. Values are deliberately NOT shown: a diff can carry notes and
- * contact details, and the timeline is a scannable "what changed", not a
- * data dump — the record itself shows current values.
+ * Say what an audit row's `diff` (a JSON blob of the change) MEANS, in the
+ * words the operator uses.
+ *
+ * Two things are withheld. **Values**, because a diff carries notes, contact
+ * details and file names, and the timeline is a scannable "what happened", not
+ * a data dump — the record itself shows current values. **Field names**, too:
+ * "persons, email, phone, notes" is the shape of the storage, not the shape of
+ * the work, and an operator should never have to read a column name to know
+ * what someone did.
+ *
+ * The one value that stays is the ticket status: it is a fixed workflow state
+ * from a published list, carries no personal data, and is the single thing a
+ * reader of the timeline is most often looking for.
  */
 export function auditSummary(e: AuditEntry): string {
   let parsed: unknown;
   try { parsed = JSON.parse(e.diff); } catch { return ''; }
   if (!parsed || typeof parsed !== 'object') return '';
-  const keys = Object.keys(parsed as Record<string, unknown>).filter((k) => k !== 'id');
+  const d = parsed as Record<string, unknown>;
+  const keys = Object.keys(d).filter((k) => k !== 'id');
   if (!keys.length) return '';
-  if (keys.includes('addProgress')) return 'progress logged';
-  if (keys.length === 1 && keys[0] === 'status') {
-    const s = (parsed as { status?: unknown }).status;
-    return typeof s === 'string' ? `status → ${s}` : 'status changed';
+
+  // Document changes audit against the OWNING record, so they arrive here as a
+  // one-key diff whose key is the verb.
+  if ('addProgress' in d) return 'progress logged';
+  if ('attached' in d) return d.source === 'generated' ? 'document generated' : 'file uploaded';
+  if ('linked' in d) return 'Drive file linked';
+  if ('removedDocument' in d) return 'document removed';
+
+  // A create writes every field; "created Ticket TCK-4" already said it.
+  if (e.action === 'create') return '';
+
+  if (typeof d.status === 'string') {
+    const rest = keys.length - 1;
+    return rest
+      ? `status set to ${d.status}, and ${rest} other ${plural(rest, 'detail', 'details')} changed`
+      : `status set to ${d.status}`;
   }
-  // A create touches every field; listing them all buries the timeline.
-  const shown = keys.slice(0, 4).join(', ');
-  return keys.length > 4 ? `${shown} +${keys.length - 4} more` : shown;
+  return `${keys.length} ${plural(keys.length, 'detail', 'details')} changed`;
 }
 
 /**
@@ -317,7 +373,7 @@ export function auditItem(e: AuditEntry, labelHtml?: string): string {
     `<li class="audit__row">` +
     `<time>${esc(auditTime(e.at))}</time>` +
     `<span class="badge audit__actor" data-actor="${esc(e.actor)}">${esc(e.actor)}</span>` +
-    `<span class="audit__what">${esc(e.action)}${labelHtml ? ` ${labelHtml}` : ''}` +
+    `<span class="audit__what">${esc(auditVerb(e.action))}${labelHtml ? ` ${labelHtml}` : ''}` +
     (summary ? ` <span class="sub">· ${esc(summary)}</span>` : '') +
     `</span></li>`
   );

@@ -48,7 +48,9 @@
   border-radius: var(--radius-md, 4px); text-decoration: none;
   color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem);
 }
-.nav a .nav__ico { width: 18px; text-align: center; opacity: .75; font-size: .95em; }
+/* GRAIN's .icon sizes the glyph (both dimensions — overriding one is how the
+   topbar button got clipped); STEWARD only says how loudly it reads. */
+.nav a .nav__ico { opacity: .75; }
 .nav a:hover { background: var(--color-bg, #E2E0D8); color: var(--color-fg, #1C1B17); }
 .nav a[aria-current="page"] { background: var(--color-fg, #1C1B17); color: var(--color-bg, #E2E0D8); }
 .nav a[aria-current="page"] .nav__ico { opacity: 1; }
@@ -154,6 +156,24 @@
 .page-head .sub { color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem); }
 .back-link { display: inline-block; margin-bottom: var(--space-3, .75rem); font-size: var(--text-sm, .875rem); color: var(--color-muted, #6E6C64); text-decoration: none; }
 .back-link:hover { color: var(--color-fg, #1C1B17); }
+
+/* ---- Home: a stats strip over two columns of panels ----------------------
+   The tiles are GRAIN's `.stat` (which owns the border, the display-scale
+   number and the tones); STEWARD only lays them out and makes each one a link,
+   because every number on Home is a doorway into the list behind it. */
+.home-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3, .75rem); margin-bottom: var(--space-6, 1.5rem);
+}
+.home-stat { text-decoration: none; color: inherit; }
+.home-stat:hover { border-color: var(--color-fg, #1C1B17); }
+.home-cols {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: var(--space-4, 1rem); align-items: start;
+}
+/* the grid's own gap does the spacing; `.pane section`'s stacking margin would
+   push the second column down by a row it is not in */
+.home-cols > section { margin-top: 0; }
 
 /* ---- Panel: a grouped sheet (wraps tables, forms, sections) --------------- */
 .panel {

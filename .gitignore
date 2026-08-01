@@ -40,3 +40,4 @@ release/
 
 # nimbalyst session artifacts
 .nimbalyst/
+nimbalyst-local/

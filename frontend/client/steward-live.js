@@ -30,9 +30,9 @@ function applyOp(o) {
 // Recompute kanban column counts from the DOM after every op (moves change them).
 // Counts VISIBLE cards so an active filter shows filtered totals.
 function refreshBoardCounts() {
-  document.querySelectorAll('.board-col').forEach((col) => {
+  document.querySelectorAll('.kanban-col').forEach((col) => {
     const count = col.querySelector('.count');
-    const cards = col.querySelector('.cards');
+    const cards = col.querySelector('.kanban-cards');
     if (count && cards) count.textContent = String([...cards.children].filter((c) => !c.hidden).length);
   });
 }
@@ -123,7 +123,7 @@ document.addEventListener('input', (e) => {
   const scope = document.querySelector(inp.getAttribute('data-filter'));
   if (!scope) return;
   const q = inp.value.trim().toLowerCase();
-  scope.querySelectorAll('tr.row, li.card, li.audit__row').forEach((r) => {
+  scope.querySelectorAll('tr.row, li.kanban-card, li.audit__row').forEach((r) => {
     r.hidden = q ? !r.textContent.toLowerCase().includes(q) : false;
   });
   refreshBoardCounts();
@@ -213,7 +213,7 @@ function postIntent(action, payload) {
 
 let dragId = null;
 document.addEventListener('dragstart', (e) => {
-  const card = e.target instanceof HTMLElement ? e.target.closest('.card[draggable]') : null;
+  const card = e.target instanceof HTMLElement ? e.target.closest('.kanban-card[draggable]') : null;
   if (!card) return;
   dragId = card.dataset.ticketId;
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
@@ -224,15 +224,15 @@ document.addEventListener('dragend', (e) => {
   dragId = null;
 });
 document.addEventListener('dragover', (e) => {
-  const col = e.target instanceof HTMLElement ? e.target.closest('.board-col') : null;
+  const col = e.target instanceof HTMLElement ? e.target.closest('.kanban-col') : null;
   if (col && dragId) { e.preventDefault(); col.classList.add('drop-target'); }
 });
 document.addEventListener('dragleave', (e) => {
-  const col = e.target instanceof HTMLElement ? e.target.closest('.board-col') : null;
+  const col = e.target instanceof HTMLElement ? e.target.closest('.kanban-col') : null;
   if (col) col.classList.remove('drop-target');
 });
 document.addEventListener('drop', (e) => {
-  const col = e.target instanceof HTMLElement ? e.target.closest('.board-col') : null;
+  const col = e.target instanceof HTMLElement ? e.target.closest('.kanban-col') : null;
   if (!col || !dragId) return;
   e.preventDefault();
   col.classList.remove('drop-target');

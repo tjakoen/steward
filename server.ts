@@ -174,8 +174,8 @@ function shell(title: string, body: string, opts: ShellOpts): string {
     ? `<div class="searchbar"><input type="search" data-filter="${esc(opts.filter.target)}" ` +
       `placeholder="${esc(opts.filter.placeholder ?? 'Filter…')}" aria-label="Filter"></div>`
     : '';
-  const themeToggle = `<button type="button" class="icon ghost" data-toggle-scheme aria-label="Toggle light/dark" title="Toggle light/dark">◐</button>`;
-  const newBtn = opts.drawer ? `<button type="button" class="primary" data-drawer-open>+ ${esc(opts.drawer.title)}</button>` : '';
+  const themeToggle = `<button type="button" class="btn topbar__btn" data-toggle-scheme aria-label="Toggle light/dark" title="Toggle light/dark">◐</button>`;
+  const newBtn = opts.drawer ? `<button type="button" class="btn" data-variant="soft" data-drawer-open>+ ${esc(opts.drawer.title)}</button>` : '';
 
   // A single drawer per page: prefilled with the create form (if any); edit
   // buttons reuse it by swapping the title + loading an /edit fragment.
@@ -184,7 +184,7 @@ function shell(title: string, body: string, opts: ShellOpts): string {
     `<div class="drawer__backdrop" data-drawer-close></div>` +
     `<div class="drawer__panel"><header class="drawer__head">` +
     `<h2 data-drawer-title>${esc(opts.drawer?.title ?? '')}</h2>` +
-    `<button type="button" class="drawer__close" data-drawer-close aria-label="Close">✕</button></header>` +
+    `<button type="button" class="btn topbar__btn" data-drawer-close aria-label="Close">✕</button></header>` +
     `<div class="drawer__body" data-drawer-body>${opts.drawer?.body ?? ''}</div></div></aside>`;
 
   return (
@@ -299,11 +299,11 @@ const documentsSection = (entity: AuditEntity, id: string): string =>
   `<input type="hidden" name="entity" value="${esc(entity)}">` +
   `<input type="hidden" name="entityId" value="${esc(id)}">` +
   `<div class="form-row"><input type="file" name="file" required></div>` +
-  `<div class="form-controls"><button type="submit">Attach</button>` +
+  `<div class="form-controls"><button type="submit" class="btn">Attach</button>` +
   // Linking an EXISTING Drive file can only start from a connected account —
   // there is nothing to pick from otherwise.
   (googleAuth.status().connected
-    ? `<button type="button" data-picker data-entity="${esc(entity)}" data-entity-id="${esc(id)}">` +
+    ? `<button type="button" class="btn" data-picker data-entity="${esc(entity)}" data-entity-id="${esc(id)}">` +
       `Link from Drive</button>`
     : '') +
   `</div></form>`;
@@ -354,7 +354,7 @@ function ticketPanel(t: Ticket, inDrawer = false): string {
     `<div data-panel-title="${esc(t.title)}">` +
     lineage([client ? clientLink(client) : '', customer ? customerLink(customer) : '',
       `<strong>${esc(t.ticketId)}</strong>`].filter(Boolean)) +
-    panelMeta([`<span class="badge accent">${esc(t.status)}</span>`,
+    panelMeta([`<span class="badge badge-accent">${esc(t.status)}</span>`,
       `<a href="/tickets/${esc(t.id)}/pdf" target="_blank" rel="noopener">PDF ↗</a>`,
       // Saving is explicit: the link above is a live render, this keeps a copy
       // as a document of THIS ticket rather than silently filing every preview.
@@ -366,7 +366,7 @@ function ticketPanel(t: Ticket, inDrawer = false): string {
     `<input type="hidden" name="id" value="${esc(t.id)}" />` +
     `<div class="form-row"><label for="f_update">Add update</label>` +
     `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
-    `<div class="form-controls"><button type="submit">Log</button></div></form>` +
+    `<div class="form-controls"><button type="submit" class="btn">Log</button></div></form>` +
     documentsSection('ticket', t.id) +
     historySection('ticket', t.id) +
     fullPageLink(`/tickets/${esc(t.id)}`, inDrawer) +
@@ -411,7 +411,7 @@ async function documentPanel(d: DocumentRef, inDrawer = false): Promise<string> 
       ? ''
       : `<a class="btn" href="${raw}?download=1" download="${esc(d.name)}">Download</a>`) +
     `<form method="post" action="/files/${esc(d.id)}/delete" onsubmit="return confirm('Remove this document?')">` +
-    `<button type="submit">Remove</button></form></div>` +
+    `<button type="submit" class="btn">Remove</button></form></div>` +
     fullPageLink(`/files/${esc(d.id)}`, inDrawer) +
     `</div>`
   );
@@ -631,7 +631,7 @@ const server = Bun.serve({
         return layout('Tickets',
           `<div class="page-head"><h1>Tickets</h1><span class="sub">${tickets.length} tickets</span></div>${board}${note}`,
           { path: '/tickets',
-            filter: { target: '.board', placeholder: 'Filter tickets…' },
+            filter: { target: '.kanban', placeholder: 'Filter tickets…' },
             drawer: customers.length ? { title: 'New ticket', body: renderForm(ticketSchema(customers), 'create') } : undefined });
       },
     },
@@ -913,7 +913,7 @@ const server = Bun.serve({
         `<p class="muted">AI-first admin cockpit — task-ticket CRM with branded document generation.</p>` +
         `<section class="panel"><div class="panel__head"><h2>Proof of life</h2></div><div class="panel__body">` +
         `<p class="muted">Sends a real Intent through the single door. The reasoner performs an audited SQLite write and streams a render op back over SSE.</p>` +
-        `<button type="button" class="primary" id="run-demo">Run demo intent</button>` +
+        `<button type="button" class="btn" data-variant="soft" id="run-demo">Run demo intent</button>` +
         `<div id="reflection" data-surface="reflection" class="log" aria-live="polite"></div>` +
         `<script type="module">
           const session = crypto.randomUUID();
@@ -958,11 +958,11 @@ const server = Bun.serve({
                   `<code>GOOGLE_PROJECT_NUMBER</code> (the Cloud project number). Until then, uploads and ` +
                   `generated PDFs still file to Drive normally.</p>`) +
               `<form method="post" action="/oauth/google/disconnect"><div class="form-controls">` +
-              `<button type="submit">Disconnect</button></div></form>` +
+              `<button type="submit" class="btn">Disconnect</button></div></form>` +
               `<p class="muted">Disconnecting only forgets the connection here. Files already in Drive stay in Drive, ` +
               `and files already on this machine keep working.</p>`
             : `<p class="muted">Not connected. Documents are stored locally on this machine.</p>` +
-              `<p><a class="btn primary" href="/oauth/google/start">Connect Google Drive</a></p>` +
+              `<p><a class="btn" data-variant="soft" href="/oauth/google/start">Connect Google Drive</a></p>` +
               `<p class="muted">STEWARD asks only for <code>${esc(GOOGLE_SCOPE.split('/').pop() ?? '')}</code> access — ` +
               `the files it creates, not the rest of your Drive.</p>`;
         const noticeHtml = notice
@@ -975,18 +975,18 @@ const server = Bun.serve({
         `<section class="panel"><div class="panel__head"><h2>Appearance</h2></div><div class="panel__body">` +
         `<p class="muted">Theme is a GRAIN token re-skin, saved to this browser.</p>` +
         `<div class="form-row"><label>Mode</label><div class="form-controls">` +
-        `<button type="button" data-set-scheme="light">Light</button>` +
-        `<button type="button" data-set-scheme="dark">Dark</button>` +
-        `<button type="button" data-set-scheme="auto">Auto (OS)</button></div></div>` +
+        `<button type="button" class="btn" data-set-scheme="light">Light</button>` +
+        `<button type="button" class="btn" data-set-scheme="dark">Dark</button>` +
+        `<button type="button" class="btn" data-set-scheme="auto">Auto (OS)</button></div></div>` +
         `<div class="form-row" style="margin-top:1rem"><label>Flavor <span class="mono" data-theme-name></span></label><div class="form-controls">` +
-        `<button type="button" data-set-theme="sourdough">Sourdough</button>` +
-        `<button type="button" data-set-theme="baguette">Baguette</button>` +
-        `<button type="button" data-set-theme="brioche">Brioche</button></div></div>` +
+        `<button type="button" class="btn" data-set-theme="sourdough">Sourdough</button>` +
+        `<button type="button" class="btn" data-set-theme="baguette">Baguette</button>` +
+        `<button type="button" class="btn" data-set-theme="brioche">Brioche</button></div></div>` +
         `</div></section>` +
         `<section class="panel"><div class="panel__head"><h2>Demo mode</h2></div><div class="panel__body">` +
         `<p class="muted">Load fictional data into a separate demo database. Real data is untouched.</p>` +
-        `<div class="form-controls"><button type="button" id="reset">Reset demo data</button>` +
-        `<button type="button" id="status">Show counts</button></div>` +
+        `<div class="form-controls"><button type="button" class="btn" id="reset">Reset demo data</button>` +
+        `<button type="button" class="btn" id="status">Show counts</button></div>` +
         `<pre id="out" class="log"></pre>` +
         `<script type="module">
           const out = document.getElementById('out');

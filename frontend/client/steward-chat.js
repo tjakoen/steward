@@ -47,7 +47,7 @@ let logEl, input, statusEl;
 function buildPanel() {
   const toggle = document.createElement('button');
   toggle.type = 'button';
-  toggle.className = 'chat-toggle';
+  toggle.className = 'btn chat-toggle';
   toggle.textContent = '✶ Assistant';
 
   const panel = document.createElement('section');
@@ -56,9 +56,12 @@ function buildPanel() {
   panel.innerHTML =
     '<header class="chat-panel__head"><strong>Assistant</strong>' +
     '<span class="chat-status" data-surface="chat-status"></span></header>' +
-    `<div class="chat-log" data-surface="${LOG_SURFACE}" data-kind="chat-log" aria-live="polite"></div>` +
+    // GRAIN's chat-log owns the thread (bubbles align themselves inside it);
+    // chat-panel__log is STEWARD's — it makes the log fill and scroll THIS panel.
+    `<div class="chat-log chat-panel__log" data-surface="${LOG_SURFACE}" data-kind="chat-log" aria-live="polite"></div>` +
     '<form class="chat-composer"><textarea rows="2" placeholder="Ask about STEWARD…" ' +
-    'aria-label="Message the assistant"></textarea><button type="submit">Send</button></form>';
+    'aria-label="Message the assistant"></textarea>' +
+    '<button type="submit" class="btn chat-send">Send</button></form>';
 
   document.body.append(toggle, panel);
   logEl = panel.querySelector('.chat-log');

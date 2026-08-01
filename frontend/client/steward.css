@@ -1,7 +1,13 @@
 /* STEWARD app chrome. GRAIN tokens (variables.css) supply palette + scale;
    this file only composes them into an admin app-shell. No hardcoded hues —
    every value chains to a --color-* / --space-* / --text-* / --radius-* token.
-   Fallbacks are kept only so the file renders standalone in a mockup viewer. */
+   Fallbacks are kept only so the file renders standalone in a mockup viewer.
+
+   THIS FILE IS SERVED AFTER GRAIN'S, so any selector naming a GRAIN class
+   silently rewrites a design-system component. It therefore names none: where
+   STEWARD needs to tune a GRAIN component in place it adds a class of its own
+   next to GRAIN's (`class="btn topbar__btn"`, `class="chat-log chat-panel__log"`)
+   and styles that. `app/view/css.test.ts` enforces it. */
 
 /* ---- App shell: fixed sidebar + scrollable content column ---------------- */
 .app-shell {
@@ -94,24 +100,30 @@
    Everything else must keep its natural height — without this, a tall page
    (Settings) gets its panels squeezed and their contents clipped. */
 .pane { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6, 1.5rem); display: flex; flex-direction: column; }
-.pane > *:not(.board) { flex: none; }
+.pane > *:not(.kanban) { flex: none; }
 .pane > :first-child { margin-top: 0; }
 
-/* ---- Buttons (shared) ---------------------------------------------------- */
-button, .btn {
-  font: inherit; font-size: var(--text-sm, .875rem); cursor: pointer;
-  padding: var(--space-2, .5rem) var(--space-4, 1rem); border-radius: var(--radius-md, 4px);
-  border: 1px solid var(--hairline, #1C1B17); background: transparent; color: var(--color-fg, #1C1B17);
+/* ---- Buttons ------------------------------------------------------------- */
+/* GRAIN owns the button; every control in STEWARD carries `class="btn"` and takes
+   its variant from an attribute. Only the two shapes GRAIN has no atom for live
+   here, and both compose ON TOP of .btn rather than redefining it. */
+
+/* A square glyph button (topbar scheme toggle, drawer close): kill the label
+   metrics .btn sets for a word, keep its border, hover and focus ring. */
+.topbar__btn {
+  min-height: 0; width: 2.25rem; height: 2.25rem; padding: 0;
+  border-color: transparent; font-size: var(--text-base, 1rem); letter-spacing: 0;
 }
-button:hover, .btn:hover { background: var(--color-bg, #E2E0D8); }
-button.primary, .btn.primary {
-  background: var(--color-accent, #1C1B17); color: var(--color-accent-contrast, #E2E0D8);
-  border-color: var(--color-accent, #1C1B17);
+.topbar__btn:hover { border-color: var(--color-line, rgba(28,27,23,.14)); }
+
+/* An inline text button — a verb that belongs mid-sentence, not a control ("Save
+   PDF to documents" under a file). Not a .btn: it must not read as one. */
+.linkish {
+  border: none; background: none; padding: 0; font: inherit;
+  font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+  text-decoration: underline; cursor: pointer;
 }
-button.primary:hover, .btn.primary:hover { background: var(--color-accent-hover, #1C1B17); }
-button.ghost { border-color: transparent; }
-button.icon { padding: var(--space-2, .5rem); width: 34px; text-align: center; }
-button:disabled { opacity: .5; cursor: not-allowed; }
+.linkish:hover { color: var(--color-fg, #1C1B17); }
 .topbar__actions a { text-decoration: none; }
 
 /* ---- Page header inside the pane ----------------------------------------- */
@@ -120,8 +132,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .page-head .sub { color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem); margin-left: auto; }
 .back-link { display: inline-block; margin-bottom: var(--space-3, .75rem); font-size: var(--text-sm, .875rem); color: var(--color-muted, #6E6C64); text-decoration: none; }
 .back-link:hover { color: var(--color-fg, #1C1B17); }
-
-.muted { color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem); }
 
 /* ---- Panel: a grouped sheet (wraps tables, forms, sections) --------------- */
 .panel {
@@ -148,19 +158,19 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .dtable tbody tr:last-child td { border-bottom: 0; }
 .dtable tbody tr:hover td { background: var(--color-bg, #E2E0D8); }
 .dtable tbody tr[data-href] { cursor: pointer; }
-.dtable td .name, .dtable td a { font-weight: 600; color: var(--color-fg, #1C1B17); text-decoration: none; }
+.dtable td a { font-weight: 600; color: var(--color-fg, #1C1B17); text-decoration: none; }
 .dtable td a:hover { color: var(--color-accent, #1C1B17); }
 .dtable td .sub { color: var(--color-muted, #6E6C64); font-weight: 400; }
 .dtable .empty td { color: var(--color-muted, #6E6C64); text-align: center; padding: var(--space-6, 1.5rem); }
 .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64); }
 .swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 6px; border: 1px solid var(--color-line, rgba(0,0,0,.15)); }
 
-.badge {
-  display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill, 3px);
-  font-size: var(--text-xs, .8125rem); font-weight: 500;
-  border: 1px solid var(--color-line, rgba(28,27,23,.14)); color: var(--color-muted, #6E6C64);
+/* GRAIN's b-badge is the tag; STEWARD adds one tone it has no attribute for —
+   the accent state (a ticket's own status, the AI as actor). Worn beside .badge. */
+.badge-accent {
+  border-color: var(--color-accent, #1C1B17); color: var(--color-accent, #1C1B17);
+  background: var(--color-accent-soft, transparent);
 }
-.badge.accent { border-color: var(--color-accent, #1C1B17); color: var(--color-accent, #1C1B17); background: var(--color-accent-soft, transparent); }
 
 /* ---- FormBuilder --------------------------------------------------------- */
 .fb { display: grid; gap: var(--space-3, .75rem); max-width: 34rem; }
@@ -189,36 +199,39 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .log p { margin: .15rem 0; }
 
 /* ---- Kanban board (class names are live-JS contract — restyle only) ------ */
-/* Board fills the pane; each column scrolls internally so the header row stays put. */
-.board { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3, .75rem); margin: 0; flex: 1 1 auto; min-height: 22rem; }
-.board-col {
+/* `.kanban*`, not `.board`/`.card`: GRAIN's .board is a reading measure and its
+   .card a content tile, and a drag-and-drop ticket board is neither. A ticket
+   board is STEWARD's own concept, so it carries STEWARD's own name.
+   Board fills the pane; each column scrolls internally so the header row stays put. */
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3, .75rem); margin: 0; flex: 1 1 auto; min-height: 22rem; }
+.kanban-col {
   border: 1px solid var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 8px);
   background: var(--color-surface, #E8E6DF); padding: var(--space-3, .6rem);
   display: flex; flex-direction: column; min-height: 0; overflow: hidden;
 }
-.board-col .cards { overflow-y: auto; flex: 1; min-height: 0; align-content: start; }
-.board-col.drop-target { border-color: var(--color-accent, #1C1B17); background: var(--color-accent-soft, rgba(31,78,95,.06)); }
-.board-col h2 {
+.kanban-col .kanban-cards { overflow-y: auto; flex: 1; min-height: 0; align-content: start; }
+.kanban-col.drop-target { border-color: var(--color-accent, #1C1B17); background: var(--color-accent-soft, rgba(31,78,95,.06)); }
+.kanban-col h2 {
   font-size: var(--text-xs, .8125rem); text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
   margin: 0 0 var(--space-3, .6rem); display: flex; justify-content: space-between; gap: var(--space-2, .5rem);
   color: var(--color-muted, #6E6C64);
 }
-.board-col .count { font-variant-numeric: tabular-nums; opacity: .7; }
-.cards { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-2, .5rem); }
-.card {
+.kanban-col .count { font-variant-numeric: tabular-nums; opacity: .7; }
+.kanban-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-2, .5rem); }
+.kanban-card {
   display: grid; gap: 2px; padding: var(--space-3, .55rem); cursor: grab;
   border: 1px solid var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 6px);
   background: var(--color-bg, #E2E0D8);
 }
-.card.dragging { opacity: .4; }
-.card a { text-decoration: none; color: var(--color-fg, #1C1B17); font-weight: 600; font-size: var(--text-sm, .875rem); }
-.card .mono { font-size: .72rem; }
+.kanban-card.dragging { opacity: .4; }
+.kanban-card a { text-decoration: none; color: var(--color-fg, #1C1B17); font-weight: 600; font-size: var(--text-sm, .875rem); }
+.kanban-card .mono { font-size: .72rem; }
 
 .progress { list-style: none; padding: 0; margin: var(--space-3, .75rem) 0; display: grid; gap: var(--space-2, .35rem); }
 .progress li { font-size: var(--text-sm, .875rem); border-left: 2px solid var(--color-line, rgba(28,27,23,.14)); padding-left: var(--space-3, .6rem); }
 .progress time { color: var(--color-muted, #6E6C64); font-variant-numeric: tabular-nums; margin-right: .4rem; }
 
-@media (max-width: 60rem) { .board { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 60rem) { .kanban { grid-template-columns: 1fr 1fr; } }
 
 /* ---- Slide-in drawer (New / Edit forms) ---------------------------------- */
 .drawer[hidden] { display: none; }
@@ -239,8 +252,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   border-bottom: 1px solid var(--color-line, rgba(28,27,23,.14));
 }
 .drawer__head h2 { margin: 0; font-size: var(--text-lg, 1.05rem); font-weight: 600; }
-.drawer__close { border: none; background: transparent; font-size: 1.2rem; line-height: 1; padding: var(--space-2, .5rem); }
-.drawer__close:hover { background: var(--color-bg, #E2E0D8); }
 .drawer__body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-5, 1.25rem); }
 .drawer__body .fb { max-width: none; }
 
@@ -263,7 +274,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .lineage a:hover { color: var(--color-fg, #1C1B17); }
 .lineage strong { color: var(--color-fg, #1C1B17); font-weight: 600; }
 
-.chips { display: flex; flex-wrap: wrap; gap: var(--space-2, .5rem); margin: 0 0 var(--space-2, .5rem); }
+/* GRAIN's chip-group supplies the row (`.chips`); `.chip` is STEWARD's own — a
+   link or button chip, where GRAIN's `.chips__chip` wraps a form control. */
 .chip {
   display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill, 3px);
   font-size: var(--text-xs, .8125rem); text-decoration: none; cursor: pointer;
@@ -284,12 +296,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .attach { margin-top: var(--space-3, .75rem); }
 .attach input[type="file"] { font-size: var(--text-xs, .8125rem); }
 form.inline { display: inline; }
-button.linkish {
-  border: none; background: none; padding: 0; font: inherit;
-  font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
-  text-decoration: underline; cursor: pointer;
-}
-button.linkish:hover { background: none; color: var(--color-fg, #1C1B17); }
 
 .preview {
   margin: var(--space-4, 1rem) 0; border: 1px solid var(--color-line, rgba(28,27,23,.14));
@@ -358,29 +364,22 @@ button.linkish:hover { background: none; color: var(--color-fg, #1C1B17); }
   content: "✦"; margin-right: 6px; color: var(--color-accent, var(--color-fg, #1C1B17));
 }
 .chat-status { font-size: var(--text-xs, .75rem); color: var(--color-muted, #666); text-align: right; }
-.chat-log { flex: 1; overflow-y: auto; padding: var(--space-4, .7rem); display: flex; flex-direction: column; gap: var(--space-3, .6rem); }
-.chat-log:empty::before {
+
+/* The thread itself is GRAIN's chat-log + chat-message: the bubble, its border,
+   its alignment and the grain face for AI speech all come from there. STEWARD
+   only makes the log fill this panel and scroll — worn as a second class beside
+   `.chat-log`, never as a redefinition of it. Declaring a border here again is
+   what produced the box-in-a-box every AI reply used to render as. */
+.chat-panel__log { flex: 1; overflow-y: auto; padding: var(--space-4, .7rem); }
+.chat-panel__log:empty::before {
   content: "Ask about your clients, customers, and tickets."; margin: auto; max-width: 22ch; text-align: center;
   color: var(--color-muted, #888); font-size: var(--text-sm, .875rem); line-height: 1.5;
 }
-.chat-log .chat-message { font-size: var(--text-sm, .9rem); line-height: 1.45; max-width: 85%; }
-.chat-log .chat-message[data-role="you"] { align-self: flex-end; text-align: right; }
-.chat-log .chat-message[data-role="you"] .chat-message__body {
-  background: var(--color-accent-soft, #E7EEFB); border-color: transparent;
-}
-/* AI replies carry the GRAIN "grain" face — a subtle "written by the assistant" signal. */
-.chat-log .chat-message:not([data-role="you"]) .chat-message__body { font-family: var(--font-grain-fine, inherit); }
-.chat-log .chat-message__body {
-  display: inline-block; padding: var(--space-2, .4rem) var(--space-3, .6rem);
-  border-radius: var(--radius-md, 8px); border: 1px solid var(--color-line, rgba(28,27,23,.14));
-  background: var(--color-bg, #E2E0D8);
-}
-.chat-log .chat-message__who { display: block; font-size: var(--text-xs, .7rem); color: var(--color-muted, #888); margin-bottom: 3px; }
 .chat-composer { display: flex; gap: var(--space-2, .4rem); padding: var(--space-3, .5rem); border-top: 1px solid var(--color-line, rgba(28,27,23,.14)); }
 .chat-composer textarea {
   flex: 1; resize: none; padding: var(--space-2, .4rem) var(--space-3, .5rem);
   border: 1px solid var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 6px);
   font: inherit; background: var(--color-bg, #E2E0D8); color: inherit;
 }
-.chat-composer button { background: var(--color-accent, #1C1B17); color: var(--color-accent-contrast, #fff); border-color: var(--color-accent, #1C1B17); }
-.chat-composer button:disabled, .chat-composer textarea:disabled { opacity: .5; cursor: not-allowed; }
+.chat-send { background: var(--color-accent, #1C1B17); color: var(--color-accent-contrast, #fff); border-color: var(--color-accent, #1C1B17); }
+.chat-composer textarea:disabled { opacity: .5; cursor: not-allowed; }

@@ -86,9 +86,9 @@ export function renderForm(
   const submitLabel = mode === 'create' ? 'Create' : 'Save';
   const controls =
     mode === 'view'
-      ? `<button type="button" data-form-edit>Edit</button>`
-      : `<button type="submit">${submitLabel}</button>` +
-        (mode === 'edit' ? `<button type="button" data-form-cancel>Cancel</button>` : '');
+      ? `<button type="button" class="btn" data-form-edit>Edit</button>`
+      : `<button type="submit" class="btn" data-variant="soft">${submitLabel}</button>` +
+        (mode === 'edit' ? `<button type="button" class="btn" data-form-cancel>Cancel</button>` : '');
 
   return (
     `<form class="fb" data-action="${esc(schema.action)}" data-mode="${mode}">` +
@@ -199,7 +199,7 @@ export function ticketCard(t: Ticket, customerLabel: string): string {
   const waiting = t.status === 'Waiting' && t.waitingOn
     ? `<span class="muted">waiting: ${esc(t.waitingOn)}</span>` : '';
   return (
-    `<li class="card" data-surface="ticket:${esc(t.id)}" draggable="true"` +
+    `<li class="kanban-card" data-surface="ticket:${esc(t.id)}" draggable="true"` +
     ` data-ticket-id="${esc(t.id)}" data-status="${esc(t.status)}" data-href="/tickets/${esc(t.id)}">` +
     `<a href="/tickets/${esc(t.id)}"><strong>${esc(t.title)}</strong></a>` +
     `<span class="muted mono">${esc(t.ticketId)}</span>` +
@@ -216,13 +216,13 @@ export function renderBoard(tickets: Ticket[], labelOf: (t: Ticket) => string): 
     const list = byStatus[s] ?? [];
     const cards = list.map((t) => ticketCard(t, labelOf(t))).join('');
     return (
-      `<div class="board-col" data-status="${esc(s)}">` +
+      `<div class="kanban-col" data-status="${esc(s)}">` +
       `<h2>${esc(s)} <span class="count">${list.length}</span></h2>` +
-      `<ul class="cards" data-surface="ticket-col:${esc(s)}">${cards}</ul>` +
+      `<ul class="kanban-cards" data-surface="ticket-col:${esc(s)}">${cards}</ul>` +
       `</div>`
     );
   }).join('');
-  return `<div class="board">${cols}</div>`;
+  return `<div class="kanban">${cols}</div>`;
 }
 
 /** One progress-log entry, as a list item (appended live via SSE). */

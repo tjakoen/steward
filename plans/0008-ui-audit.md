@@ -1,7 +1,7 @@
 ---
 id: 0008-ui-audit
 title: STEWARD — UI audit; close the GRAIN class collisions before the upstream ships
-status: todo
+status: in-progress
 owner: admin
 created: 2026-08-01
 milestone: M2 (AI-native cockpit)
@@ -9,22 +9,22 @@ tags: [ui, css, collisions, accessibility, density, audit]
 tasks:
   - id: collision-guard
     title: A test that fails when steward.css defines a class GRAIN already owns
-    status: todo
+    status: done
   - id: fix-board
     title: .board/.card/.cards → .kanban* (live-JS contract, rename in lockstep)
-    status: todo
+    status: done
   - id: fix-icon
     title: Remove button.icon — GRAIN owns .icon and leaks height:1.25rem
-    status: todo
+    status: done
   - id: fix-btn
     title: One button language — adopt GRAIN's .btn, retire the bare `button` selector
-    status: todo
+    status: done
   - id: fix-chat
     title: Delete STEWARD's duplicate .chat-message/.chat-log rules (double bubble)
-    status: todo
+    status: done
   - id: fix-latent
     title: .badge .chips .muted .card — delete duplicates, keep only what GRAIN lacks
-    status: todo
+    status: done
   - id: measure
     title: A content measure on .pane, and pair the page-head count with its title
     status: todo
@@ -244,6 +244,36 @@ publishing 0.1.13 against a collision, and a published version cannot be taken b
 
 **Adopting `.btn` changes how the whole app looks.** It is the right call for a design-system
 build and it is still a visible change to every screen. Get the go-ahead before, not after.
+
+## What the collision pass actually did (2026-08-01)
+
+Six tasks are done — the guard plus the five renames/adoptions. `bun test` is 80 green
+(77 + the guard's 3), `tsc` clean, and every browser check above was measured on `PORT=3211`
+at 1440px.
+
+- **The guard found a thirteenth.** `.dtable td .name` against GRAIN's `.eyebrow .name`.
+  Scoped on both sides, so it was doing no damage — and dead: no markup emits `class="name"`.
+  Deleted. The guard is deliberately strict (any class defined in both, allow-list of one:
+  `.app-shell`, until 0007), which forces a doctrine worth keeping: **steward.css names no GRAIN
+  class at all.** Where STEWARD needs to tune a GRAIN component it wears a second class of its
+  own — `btn topbar__btn`, `chat-log chat-panel__log`, `badge badge-accent` — and styles that.
+  Refining `.chat-log .chat-message__body` in place is exactly how the double bubble happened.
+- **The rename broke the filter, silently, as predicted.** `server.ts` passed the filter box
+  `target: '.board'`; after the rename that selector matched nothing, so typing hid nothing and
+  said nothing. `tsc` was clean and all tests passed through it. The browser caught it. Now
+  `.kanban`: a query hides 4 of 6 cards and the column counts follow (1/1/0/0 → 6 restored on
+  clear). Drag also survives: card moved between columns over SSE, counts recomputed.
+- **`.btn` adopted, with the go-ahead.** Every button carries `class="btn"`; uppercase at 44px
+  app-wide. `data-size="sm"` was tried on the dense in-form actions and then dropped — one
+  button language means one height. Two shapes stay STEWARD's: `.topbar__btn` (a 36px square
+  glyph button, now 36×36 with nothing clipped, was 34×20) and `.linkish` (an inline text verb,
+  never a control). `.primary` is gone; emphasis is `data-variant="soft"`, GRAIN's vocabulary.
+- **The kanban is the pane's width.** `max-width: none`, 1156px board in a 1156px pane content
+  box, four 280px columns (was a 768px board with 163px columns).
+- **One border per chat message.** Log 0, `.chat-message` 1, `.chat-message__body` 0 — and the
+  AI's line renders Redaction 35 through GRAIN's own `data-grade`, not a STEWARD font rule.
+- `.board-col` was renamed to `.kanban-col` alongside the three collisions. Not a collision,
+  but leaving it would have split the board's vocabulary across two names.
 
 ## Roadmap note
 

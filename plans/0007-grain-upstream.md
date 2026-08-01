@@ -34,6 +34,9 @@ tasks:
   - id: steward-adopt
     title: Bump the dep, delete the upstreamed CSS, reclass the markup, reverify
     status: todo
+  - id: narrow
+    title: 700px — collapse the rail instead of spending 34% of the window on it
+    status: todo
 ---
 
 # STEWARD — GRAIN upstream (0007)
@@ -284,3 +287,13 @@ Adopting GRAIN's app-shell fixes one of the four and leaves three, so the browse
 step 6 would sign off a shell that is still half-GRAIN. `plans/0008-ui-audit.md` closes the
 collisions first; this plan resumes after it, unchanged apart from the sequencing. The grain
 branch `0007-admin-surfaces` stays as built — nothing found here changes what was upstreamed.
+
+**0008 is now closed except one task, which moved here: `narrow`.** At 700px STEWARD spends 34%
+of the window on a fixed 236px rail. Fixing that in 0008 would have meant writing a collapse
+STEWARD owns, and GRAIN's `side-rail` already ships `data-rail-collapsed` — the same duplication
+this plan exists to end. It becomes near-free once `steward-adopt` lands, so it is sequenced
+after it: adopt the rail, then drive the attribute, then re-measure at 700px in both schemes.
+Everything else 0008 found is fixed and committed (`396daf4`, `bd387aa`, `5388be0`), including
+the doctrine this plan must keep honouring: **steward.css names no GRAIN class at all**, enforced
+by `app/view/css.test.ts`, whose allow-list holds exactly one name — `.app-shell`, until
+`shell-collision` here removes the need for it.

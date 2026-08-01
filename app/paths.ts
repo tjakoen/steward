@@ -93,6 +93,16 @@ export function loadEnvFile(text: string, env: Record<string, string | undefined
   return applied;
 }
 
+/**
+ * What was said before the log file could exist.
+ *
+ * This module's body runs before anything can install a console mirror (that is the
+ * point of it running early), so the lines it emits would otherwise never reach
+ * `steward.log` — and they are precisely the lines someone diagnosing a launch with no
+ * console window wants. `app/log.ts` flushes these first.
+ */
+export const bootNotes: string[] = [];
+
 // An import-time side effect, deliberately, and this is the one place that earns it:
 // `config.ts` reads `Bun.env` while ITS module body evaluates, and it imports this file,
 // so this is the last moment at which anything can still be put into the environment. Do
@@ -102,7 +112,11 @@ export function loadEnvFile(text: string, env: Record<string, string | undefined
 if (PACKAGED) {
   try {
     const applied = loadEnvFile(readFileSync(envFile(), 'utf8'), process.env);
-    if (applied.length) console.log(`[config] ${envFile()}: ${applied.join(', ')}`);
+    if (applied.length) {
+      const note = `[config] ${envFile()}: ${applied.join(', ')}`;
+      bootNotes.push(note);
+      console.log(note);
+    }
   } catch {
     // No file is the normal case on a first run. Everything here has a default, and the
     // things that do not (Google credentials) are baked in at build time.

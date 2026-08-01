@@ -92,15 +92,15 @@ for (const [prefix, dir] of Object.entries({
 
 // ---- Component templates for BATCH's <b-*> renderer ----
 //
-// `createRenderer` finds these with its own `readdirSync` and then reads each with
-// `Bun.file`. The read works from an embedded path; the WALK cannot, and it is the walk
-// that ran first and took the whole binary down with an ENOENT on `components`.
+// `createRenderer` used to find these with its own `readdirSync`, which cannot walk an
+// embedded filesystem — the walk ran at import time and took the first binary down with an
+// ENOENT on `components`. BATCH 0.2.0 accepts a `templates` map instead, so `render.ts`
+// hands over what is embedded here and nothing walks anything.
 //
 // Left out, the registry would simply be empty — and an empty registry does not error, it
 // passes `<b-button>` through to the browser as an unknown element. STEWARD writes plain
 // markup today and uses none of these, but "works in dev, silently renders nothing in the
-// binary" is the exact divergence this file exists to prevent. So they travel too, and
-// `app/assets/components.ts` gives the walk a real directory to find them in.
+// binary" is the exact divergence this file exists to prevent. So they travel.
 const componentEntries: Entry[] = [];
 for (const root of config.componentRoots) {
   if (!exists(root)) continue;

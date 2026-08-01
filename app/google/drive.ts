@@ -7,11 +7,9 @@
 
 import type { DocumentStore, StoredFile } from '../docs/store.ts';
 import type { GoogleAuth } from './oauth.ts';
+import { DRIVE_FILES_API as FILES_API, ensureFolder, type Fetcher } from './folder.ts';
 
-const FILES_API = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
-
-type Fetcher = typeof fetch;
 
 interface DriveFile {
   id?: string;
@@ -39,30 +37,7 @@ export class GoogleDriveStore implements DocumentStore {
   /** Find or create the STEWARD folder. Cached for the process lifetime. */
   private async folder(): Promise<string> {
     if (this.folderId) return this.folderId;
-    const token = await this.token();
-
-    // `drive.file` only sees our own files, so this search can't collide with
-    // an unrelated folder the operator happens to have named STEWARD.
-    const q = encodeURIComponent(
-      `mimeType='application/vnd.google-apps.folder' and name='${this.folderName}' and trashed=false`,
-    );
-    const found = await this.fetchImpl(`${FILES_API}?q=${q}&fields=files(id)`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const list = (await found.json()) as { files?: { id: string }[] };
-    if (list.files?.length) {
-      this.folderId = list.files[0].id;
-      return this.folderId;
-    }
-
-    const made = await this.fetchImpl(FILES_API, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: this.folderName, mimeType: 'application/vnd.google-apps.folder' }),
-    });
-    const folder = (await made.json()) as DriveFile;
-    if (!folder.id) throw new Error(`could not create the Drive folder: ${folder.error?.message ?? 'unknown error'}`);
-    this.folderId = folder.id;
+    this.folderId = await ensureFolder(await this.token(), this.folderName, this.fetchImpl);
     return this.folderId;
   }
 

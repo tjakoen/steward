@@ -154,6 +154,53 @@ test('ticket.status rejects an unknown status, no write', () => {
   expect(services.repos.tickets.get(id)!.status).toBe('Not Commenced');
 });
 
+// --- the Sheets mirror ------------------------------------------------------
+
+test('sheet.push reports what it wrote, and emits no op at a surface it cannot see', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.push', actor: 'human', session: 's', payload: {},
+  }, {
+    pushSheet: async () => ({ ok: true, url: 'https://docs.google.com/x', counts: { Clients: 1, Tickets: 0 } }),
+  });
+  expect(r.ok).toBe(true);
+  expect(r.ops).toEqual([]); // the mirror lives in Google, not on this screen
+  expect(r.reply).toContain('1 clients');
+});
+
+test('sheet.push says when the mirror had to be recreated', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.push', actor: 'human', session: 's', payload: {},
+  }, { pushSheet: async () => ({ ok: true, counts: {}, recreated: true }) });
+  expect(r.reply).toContain('a new one was created');
+});
+
+test('sheet.push surfaces the reason a push failed', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.push', actor: 'human', session: 's', payload: {},
+  }, { pushSheet: async () => ({ ok: false, reason: 'Google is not connected.' }) });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('not connected');
+});
+
+test('sheet.push refuses by name when no mirror is wired up, rather than claiming success', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, { action: 'sheet.push', actor: 'human', session: 's', payload: {} });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('not configured');
+});
+
+test('a rejected push is an error, not an unhandled rejection', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.push', actor: 'human', session: 's', payload: {},
+  }, { pushSheet: async () => { throw new Error('socket hang up'); } });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('socket hang up');
+});
+
 test('ticket.progress appends a dated entry and grows the log', () => {
   const { services, customerId } = withCustomer();
   const created = dispatchSteward(services, {

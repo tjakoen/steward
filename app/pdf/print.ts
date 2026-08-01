@@ -184,6 +184,43 @@ export async function printToPdf(html: string): Promise<Uint8Array> {
   }
 }
 
+/**
+ * Render an HTML document to PNG bytes at an exact pixel size.
+ *
+ * Same driver, same `cdp.send` — the application icon (scripts/make-icon.ts) needs a
+ * rasteriser and this project already ships one, so it needs no new dependency.
+ */
+export async function screenshotPng(html: string, size: number): Promise<Uint8Array> {
+  if (!browser) browser = launch().catch((e) => { browser = null; throw e; });
+  const { cdp } = await browser;
+
+  const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+  try {
+    await cdp.send('Page.enable', {}, sessionId);
+    // deviceScaleFactor 1 with an explicit width/height: the viewport IS the icon, so
+    // there is nothing to crop and no rounding to argue with.
+    await cdp.send('Emulation.setDeviceMetricsOverride',
+      { width: size, height: size, deviceScaleFactor: 1, mobile: false }, sessionId);
+    // Without this the page composites onto opaque white, and an icon with rounded
+    // corners ships four white triangles that only show up on somebody's dark taskbar.
+    await cdp.send('Emulation.setDefaultBackgroundColorOverride',
+      { color: { r: 0, g: 0, b: 0, a: 0 } }, sessionId);
+    const loaded = cdp.once('Page.loadEventFired', sessionId);
+    await cdp.send('Page.navigate',
+      { url: 'data:text/html;base64,' + Buffer.from(html, 'utf8').toString('base64') }, sessionId);
+    await loaded;
+    const { data } = await cdp.send(
+      'Page.captureScreenshot',
+      { format: 'png', captureBeyondViewport: false },
+      sessionId,
+    );
+    return new Uint8Array(Buffer.from(data, 'base64'));
+  } finally {
+    await cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+  }
+}
+
 /** Shut the browser down (registered on server signals). Safe to call twice. */
 export async function closeBrowser(): Promise<void> {
   const b = browser;

@@ -14,6 +14,7 @@ export const STEWARD_ACTIONS = [
   'client.create', 'client.update',
   'customer.create', 'customer.update', 'customer.search',
   'ticket.create', 'ticket.update', 'ticket.status', 'ticket.progress',
+  'sheet.push',
 ] as const;
 export type StewardAction = (typeof STEWARD_ACTIONS)[number];
 
@@ -56,7 +57,46 @@ const op = (target: string, kind: RenderOp['op'], html: string): RenderOp => ({
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
-export function dispatchSteward(services: Services, intent: StewardIntent): StewardResult {
+/** What the mirror push reports back. Structural, so this module imports no Google code. */
+export interface SheetPush {
+  ok: boolean;
+  url?: string;
+  counts?: Record<string, number>;
+  recreated?: boolean;
+  note?: string;
+  reason?: string;
+}
+
+/**
+ * Capabilities the composition root lends this vocabulary. Optional: a dispatcher
+ * without them refuses the action by name rather than pretending it worked.
+ */
+export interface StewardDeps {
+  pushSheet?: () => Promise<SheetPush>;
+}
+
+/**
+ * `sheet.push` is the one verb that talks to Google, and it is the only one that
+ * returns a promise. The overloads say exactly that: a caller naming any other
+ * action gets a plain result and needs no await, while the door — which only knows
+ * it holds *some* action — awaits the union. A second door for the one async verb
+ * would split the vocabulary in half for the sake of a keyword.
+ */
+export function dispatchSteward(
+  services: Services,
+  intent: StewardIntent & { action: Exclude<StewardAction, 'sheet.push'> },
+  deps?: StewardDeps,
+): StewardResult;
+export function dispatchSteward(
+  services: Services,
+  intent: StewardIntent,
+  deps?: StewardDeps,
+): StewardResult | Promise<StewardResult>;
+export function dispatchSteward(
+  services: Services,
+  intent: StewardIntent,
+  deps: StewardDeps = {},
+): StewardResult | Promise<StewardResult> {
   const { payload: p, actor } = intent;
   const customerLabel = (customerId: string): string => {
     const c = services.repos.customers.get(customerId);
@@ -163,6 +203,21 @@ export function dispatchSteward(services: Services, intent: StewardIntent): Stew
         );
         return { ok: true, ops: [op('client-list', 'append', clientRow(c))],
           reply: `Created client ${c.name}.`, data: c };
+      }
+      case 'sheet.push': {
+        const push = deps.pushSheet;
+        if (!push) return { ok: false, ops: [], error: 'the Sheets mirror is not configured' };
+        // No render op: the mirror lives in Google, not on this screen, and a target
+        // nothing occupies is worse than no target at all (0009's manifest-truth).
+        return push().then((r): StewardResult => {
+          if (!r.ok) return { ok: false, ops: [], error: r.reason ?? 'the push failed' };
+          const counts = Object.entries(r.counts ?? {}).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ');
+          return { ok: true, ops: [],
+            reply: `Pushed ${counts} to the Sheets mirror.${r.recreated ? ' The previous mirror was gone, so a new one was created.' : ''}${r.note ? ` ${r.note}` : ''}`,
+            data: r };
+        }).catch((e: unknown) => ({
+          ok: false, ops: [], error: e instanceof Error ? e.message : String(e),
+        }));
       }
       case 'client.update': {
         const id = require_(p.id, 'id');

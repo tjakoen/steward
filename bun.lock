@@ -5,7 +5,7 @@
     "": {
       "name": "steward",
       "dependencies": {
-        "@tjakoen/batch": "^0.1.0",
+        "@tjakoen/batch": "^0.2.0",
         "@tjakoen/crumb": "^0.1.4",
         "@tjakoen/grain": "^0.1.13",
         "@tjakoen/mill": "^0.2.0",
@@ -19,7 +19,7 @@
     },
   },
   "packages": {
-    "@tjakoen/batch": ["@tjakoen/batch@0.1.0", "", {}, "sha512-NGZGnA1eKAhJJanUnqkNVWdvzXRyrzPpS1XYRDGurtiqFvoSnwX5tQ4PalSnHPnLVnkwpNJFeJ83Q1PrjRAlUw=="],
+    "@tjakoen/batch": ["@tjakoen/batch@0.2.0", "", {}, "sha512-D+tt5Kdo1SZPBjJf3JsN2/wTDHmsnCB6v/Dl5Ltwr81pJW5wF0JiTsYc5o1bfGkuQPFva5PJ2YY/rtJ5AyJz4g=="],
 
     "@tjakoen/crumb": ["@tjakoen/crumb@0.1.4", "", { "dependencies": { "@tjakoen/grain": "^0.1.8", "@tjakoen/mill": "^0.2.0" }, "bin": { "crumb": "cli.ts" } }, "sha512-Tt5NSmSR6uLzvZlspb4ea0BuyOIVaUhysxGXTGgCF7HufgRD6dBeFfwdG6K0m0YpDrnytBbJk+Q3bmfLEO5fAw=="],
 

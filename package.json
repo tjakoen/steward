@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "module": "server.ts",
   "dependencies": {
-    "@tjakoen/batch": "^0.1.0",
+    "@tjakoen/batch": "^0.2.0",
     "@tjakoen/crumb": "^0.1.4",
     "@tjakoen/grain": "^0.1.13",
     "@tjakoen/mill": "^0.2.0",

@@ -47,6 +47,33 @@ async function run(cmd: string[]): Promise<void> {
   if ((await proc.exited) !== 0) throw new Error(`failed: ${cmd.slice(0, 3).join(' ')}…`);
 }
 
+/**
+ * Windows-only flags (0010).
+ *
+ * 0009 refused `--windows-hide-console` while the console was the only feedback a first
+ * run had. It is not any more: packaged runs mirror everything into
+ * `<dataDir>\steward.log`, including a crash out of top-level await, and Settings prints
+ * the path. That is what makes hiding the window an interface decision rather than a way
+ * to lose the evidence.
+ *
+ * Both flags need a WINDOWS HOST. Bun 1.3.14 refuses them when cross-compiling — "Using
+ * --windows-icon is only available when compiling on Windows" — which is why the release
+ * workflow builds this one target on a windows runner. A cross-compiled exe is still a
+ * working exe; it just has the default icon and a console window, and the build says so
+ * rather than quietly producing a different artifact than the release does.
+ */
+const windowsFlags = (target: Target): string[] => {
+  if (target.platform !== 'win32') return [];
+  if (process.platform !== 'win32') {
+    console.log('  (no icon, console visible — those flags need a Windows host; CI builds this target there)');
+    return [];
+  }
+  return [
+    '--windows-hide-console',
+    `--windows-icon=${join(config.root, 'assets', 'steward.ico')}`,
+  ];
+};
+
 async function build(target: Target): Promise<string> {
   const out = join(DIST, assetName(target.platform, target.arch));
   await run([
@@ -55,6 +82,7 @@ async function build(target: Target): Promise<string> {
     // inside the binary and leaves dist/ holding exactly what gets published.
     'bun', 'build', '--compile', '--minify', '--sourcemap=inline',
     `--target=${target.bun}`,
+    ...windowsFlags(target),
     ...Object.entries(defines).flatMap(([k, v]) => ['--define', `${k}=${v}`]),
     join(config.root, 'server.ts'),
     '--outfile', out,
@@ -83,10 +111,15 @@ await unlink(join(DIST, 'server.js.map')).catch(() => {});
 // A checksums file in `sha256sum` format, which is what `app/update.ts` verifies against
 // before it will replace a running binary. A release without this one is refused by the
 // updater, deliberately — so it is generated here rather than by hand at release time.
+//
+// Over everything in dist/, not just what this run built: the release workflow compiles
+// the Windows target on a Windows runner (the icon and console flags need one) and drops
+// it here before this runs, and a checksums file that silently omitted it would make the
+// updater refuse the one binary most people download.
 const sums = await Promise.all(
-  built.map(async (p) => {
-    const bytes = new Uint8Array(await Bun.file(p).arrayBuffer());
-    return `${new Bun.CryptoHasher('sha256').update(bytes).digest('hex')}  ${p.slice(DIST.length + 1)}`;
+  readdirSync(DIST).filter((f) => f !== 'SHA256SUMS').sort().map(async (f) => {
+    const bytes = new Uint8Array(await Bun.file(join(DIST, f)).arrayBuffer());
+    return `${new Bun.CryptoHasher('sha256').update(bytes).digest('hex')}  ${f}`;
   }),
 );
 await Bun.write(join(DIST, 'SHA256SUMS'), `${sums.join('\n')}\n`);

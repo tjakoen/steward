@@ -1,6 +1,11 @@
 // STEWARD composition root. BATCH is a library — this file owns the server,
 // the single /intent door, the /stream SSE hub, and mounts MILL/PROOF/CRUMB.
 
+// FIRST, and it has to stay first: importing this installs the console mirror into
+// <dataDir>/steward.log when packaged, so every line the modules below emit while their
+// bodies evaluate is captured too (app/log.ts).
+import { logFile } from './app/log.ts';
+
 import { mkdir } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -28,6 +33,7 @@ import { sqliteRepositories } from './app/repo/sqlite.ts';
 import { makeServices, type DocumentStores } from './app/services/index.ts';
 import { makeGoogleAuth, makeVerifier, challengeFor, authUrl, GOOGLE_SCOPE } from './app/google/oauth.ts';
 import { GoogleDriveStore } from './app/google/drive.ts';
+import { makeSheetsMirror } from './app/google/sheets.ts';
 import { makeStewardReasoner } from './app/ai/reasoner.ts';
 import { CHAT_SURFACE, SCREEN_SURFACE } from './app/ai/surfaces.ts';
 import { seedDemo } from './app/seed/demo.ts';
@@ -76,6 +82,19 @@ const documentStores: DocumentStores = {
   forKind: (kind) => (kind === 'drive' ? driveStore : localStore),
 };
 const services = makeServices(repos, documentStores);
+
+// The Sheets mirror: same OAuth, same `drive.file` scope, same Drive folder. One way
+// out only — SQLite stays the source of truth, and a spreadsheet that wrote back would
+// change records with no actor, no timestamp and no diff (plans/0010-sheets-sync.md).
+const sheetsMirror = makeSheetsMirror(
+  repos.settings, googleAuth, config.google.folderName, fetch, config.google.clientId,
+);
+/** Everything the mirror puts in the sheet, read fresh at push time. */
+const mirrorData = () => ({
+  clients: services.repos.clients.list(),
+  customers: services.repos.customers.list(),
+  tickets: services.repos.tickets.list(),
+});
 
 // ---- GRAIN door ----
 const stream: Stream = createStream();
@@ -660,14 +679,15 @@ const server = listen((port) => Bun.serve({
         const o = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
         const session = typeof o.session === 'string' && o.session ? o.session : 'anon';
 
-        // STEWARD domain vocabulary — dispatched synchronously; ops pushed over SSE.
+        // STEWARD domain vocabulary — ops pushed over SSE. Every verb but `sheet.push`
+        // resolves synchronously; awaiting the others costs nothing.
         if (typeof o.action === 'string' && isStewardAction(o.action)) {
-          const result = dispatchSteward(services, {
+          const result = await dispatchSteward(services, {
             action: o.action,
             payload: o.payload && typeof o.payload === 'object' ? (o.payload as Record<string, unknown>) : {},
             actor: 'human', // stamped at the door
             session,
-          });
+          }, { pushSheet: () => sheetsMirror.push(mirrorData()) });
           if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
           for (const op of result.ops) stream.push(session, OP_EVENT, op);
           return new Response(null, { status: 202 });
@@ -727,6 +747,17 @@ const server = listen((port) => Bun.serve({
         Bun.spawn([process.execPath], { stdio: ['ignore', 'ignore', 'ignore'], detached: true }).unref();
         setTimeout(() => process.exit(0), 250).unref();
         return Response.json({ ok: true, version: found.version });
+      },
+    },
+
+    // --- Sheets mirror ---
+    // POST and only POST: this copies names, emails and phone numbers into a file that
+    // is one button away from being shared with anyone. Same reasoning as /update/apply —
+    // consent belongs at the moment of the outward-facing act, so it is never automatic.
+    '/sheets/push': {
+      POST: async () => {
+        const out = await sheetsMirror.push(mirrorData());
+        return Response.json(out, { status: out.ok ? 200 : 400 });
       },
     },
 
@@ -1163,6 +1194,49 @@ const server = listen((port) => Bun.serve({
         `<div class="page-head"><h1>Settings</h1></div>` +
         `<section class="panel"><div class="panel__head"><h2>Google Drive</h2></div><div class="panel__body">` +
         noticeHtml + state + `</div></section>` +
+        // --- Google Sheets: one true statement at a time ---
+        // The mirror is one-way and destructive by design, so the card says that BEFORE
+        // the button rather than after someone loses an afternoon's typing in it.
+        (() => {
+          const m = sheetsMirror.state();
+          const body = !m.configured || !m.connected
+            ? `<p class="muted">A mirror needs a connected Google account — connect one above. ` +
+              `It uses the same permission Drive already has, so there is nothing further to approve.</p>`
+            : `<p>A read-only spreadsheet of every client, customer, ticket and progress entry, ` +
+              `in the same <strong>${esc(config.google.folderName)}</strong> folder. For reading, filtering ` +
+              `and sharing — STEWARD never reads it back.</p>` +
+              `<p class="muted">Every push rewrites the whole file. <strong>Edits made in the spreadsheet are lost.</strong></p>` +
+              (m.url
+                ? `<p><a href="${esc(m.url)}" target="_blank" rel="noopener">Open the mirror ↗</a>` +
+                  ` <span class="muted" id="sheet-pushed">${m.pushedAt ? `— last pushed ${esc(m.pushedAt)}` : ''}</span></p>`
+                : '') +
+              `<div class="form-controls"><button type="button" class="btn" id="sheet-push">` +
+              `${m.url ? 'Push now' : 'Create the mirror'}</button></div>` +
+              `<p class="form-status" id="sheet-status" hidden></p>` +
+              `<script type="module">
+                const status = document.getElementById('sheet-status');
+                const button = document.getElementById('sheet-push');
+                const stamp = document.getElementById('sheet-pushed');
+                const say = (text, ok) => { status.hidden = false; status.textContent = text; status.dataset.ok = String(!!ok); };
+                button.addEventListener('click', async () => {
+                  button.disabled = true;
+                  say('Pushing…');
+                  const r = await fetch('/sheets/push', { method: 'POST' })
+                    .then((x) => x.json()).catch(() => ({ ok: false, reason: 'The push failed to reach Google.' }));
+                  button.disabled = false;
+                  if (!r.ok) { say(r.reason + (r.enableUrl ? ' → ' + r.enableUrl : '')); return; }
+                  const counts = Object.entries(r.counts).map(([k, v]) => v + ' ' + k.toLowerCase()).join(', ');
+                  say('Pushed ' + counts + '.' + (r.recreated ? ' The previous mirror was gone, so a new one was created.' : '') + (r.note ? ' ' + r.note : ''), true);
+                  // Update in place rather than reloading: a reload throws away the very
+                  // message the operator clicked to see. The one case that needs the
+                  // server's markup back is the FIRST push, which adds the link.
+                  if (stamp) stamp.textContent = '— last pushed ' + r.pushedAt;
+                  else location.reload();
+                });
+              </script>`;
+          return `<section class="panel"><div class="panel__head"><h2>Google Sheets</h2></div>` +
+            `<div class="panel__body">${body}</div></section>`;
+        })() +
         `<section class="panel"><div class="panel__head"><h2>Appearance</h2></div><div class="panel__body">` +
         `<p class="muted">Theme is a GRAIN token re-skin, saved to this browser.</p>` +
         // Each row is a named GROUP of toggles, not a <label> wrapping nothing.
@@ -1184,6 +1258,10 @@ const server = listen((port) => Bun.serve({
         `<p class="muted">STEWARD <span class="mono">${esc(config.version)}</span>` +
         (config.packaged ? '' : ' — running from a checkout, so updates come from git.') + `</p>` +
         `<p class="muted">Data is in <span class="mono">${esc(dataDir())}</span>.</p>` +
+        // Where a launch that produced no visible window can still be read about.
+        (config.packaged
+          ? `<p class="muted">This run is logged to <span class="mono">${esc(logFile())}</span>.</p>`
+          : '') +
         (config.packaged
           ? `<div class="form-controls"><button type="button" class="btn" id="update-check">Check for updates</button>` +
             `<button type="button" class="btn" data-variant="soft" id="update-apply" hidden>Download and restart</button></div>` +

@@ -360,3 +360,9 @@ due-check returns `unconfigured`.
 - **The email body's own branding.** Plain text, deliberately: an HTML mail that has to survive
   a dozen clients is its own project, and the branded artefact is the attachment.
 - STARTTLS on 587, per the transport section above.
+- **`dateLastUpdated` is no longer printed on the ticket document, and that is a consequence
+  of the approved mockup rather than a decision anyone made.** The old meta run-on carried it;
+  the approved grid has four cells (Ticket, Customer, Status, Initiated) and it was the fifth.
+  It survives in the digest's Updated column. Restoring it is one cell in `meta()`
+  (`app/view/pdf.ts`) and a `repeat(5, 1fr)`, but that changes a layout the human signed off,
+  so it waits for them to ask. **Flagged to the human 2026-08-04; unanswered.**

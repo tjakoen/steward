@@ -58,11 +58,16 @@ The sheet inversion rewrites the write path, so it does not share a plan with an
 | `0012` | Archive + restore + Drive archived folder (item 4) |
 | `0013` | Daily digest email + PDF report + scheduler (item 5) |
 | `0014` | Drawer tabs + real filtering (items 6, 7) |
+| `0015` | Bug reporting that opens a GitHub issue (asked for 2026-08-04) |
+| `0016` | Release readiness — install instructions, the tag, the first published binaries |
 
 Items 2 and 3 are a verification pass to run **before** any of them.
 
 Order confirmed 2026-08-03: verify pass, then `0013` (highest daily value, fully independent),
 then `0012`, `0014`, and `0011` last — it is the only one that can corrupt data.
+
+Extended 2026-08-04: `0015` (bug reporting) and then `0016` (release) after those. **Nothing is
+released until every plan is done** — the human's call, recorded below.
 
 **`plans/0013-daily-digest.md` is WRITTEN** and 10 of its 11 tasks are done (2026-08-04); only
 the live SMTP send is left, and it waits on a host and app password from the human, who
@@ -174,6 +179,66 @@ rewrites this layout against the new mockup anyway. Left unfixed deliberately.
 **FIXED 2026-08-04 in `0013`'s `pdf-footer`.** A short ticket is one page; a 90-entry ticket is
 five, with the footer in the margin of every one, a working `Page N of M`, and nothing
 overlapping. Measured by rendering to PNG and looking, not by trusting the page count.
+
+## Releasing, and reporting bugs — asked and answered 2026-08-04
+
+Two new wants, and four decisions that close them. **The release is now the LAST thing that
+happens**, not the next: the human's words were *"I'd like our plan to be complete before we
+release"*. So `0016` waits on `0012`, `0014`, `0011` and `0015` all being done. An earlier
+answer in the same exchange said "after 0012"; this supersedes it.
+
+### What already exists, measured 2026-08-04, not inferred
+
+The binaries are not a thing to build — they are built. `scripts/build.ts` compiles
+`bun-windows-x64`, `bun-darwin-arm64` and `bun-linux-x64`; `.github/workflows/release.yml`
+runs the full gate and publishes all three plus `SHA256SUMS` on a `v*` tag, with the Windows
+target on its own `windows-latest` runner for the icon and hide-console flags. Version is
+`0.2.0` and **no tag has ever been pushed**.
+
+The mac binary was rebuilt from the current tree and run: it boots, serves `/components.css`
+at exactly 138,028 bytes (the recorded invariant), and renders a real 75,740-byte branded
+ticket PDF through packaged Chrome. `build/assets.gen.ts` did not move, so the checked-in
+manifest describes the binary. The riskiest packaged path works.
+
+### The four gaps, and what was decided
+
+1. **Gatekeeper refuses the mac binary.** Bun emits `flags=0x20002(adhoc,linker-signed)` and
+   `spctl -a -vv` answers `invalid signature`. **DECIDED: ship unsigned.** An Apple Developer
+   ID is $99/yr and the audience is the operator and one friend; `0016` documents
+   `xattr -dr com.apple.quarantine ./steward-darwin-arm64` instead. Revisit when a stranger
+   downloads it.
+2. **SmartScreen warns on the unsigned exe.** Same decision, same reason — `0016` documents
+   More info → Run anyway. A Windows OV certificate is several hundred a year and reputation
+   accrues only with downloads.
+3. **The Windows exe has still never been executed.** Unchanged, and it is the one gap money
+   cannot close.
+4. **Auto-update cannot work while the repo is private.** `app/update.ts:30` reads
+   `api.github.com/repos/tjakoen/steward/releases/latest` with no token *by design*, because
+   0009 recorded that releases would be public. A private repo answers 404 forever, so the
+   updater is inert until the visibility flip.
+
+Also true and worth not rediscovering: the mac target is `arm64` only — no Intel build — and
+the machine that runs a binary still needs Chrome or Edge for PDFs, and Ollama for chat.
+
+### Bug reporting — `0015`
+
+**DECIDED: a prefilled GitHub issue URL**, opened in the operator's own browser —
+`https://github.com/tjakoen/steward/issues/new?title=…&body=…`. No credential, no new scope,
+no server, and it fits 0006's doctrine exactly.
+
+Both alternatives were rejected on the same ground. **A token baked into the binary is a write
+credential anyone can pull out of a 61 MB file**, and it cannot be recalled once shipped. A
+token in `settings` would make every operator hold a GitHub account and a secret to do the
+thing they are least equipped to do. A proxy service needs a server STEWARD does not have.
+
+The transport is the easy half. **The body is the deliverable**: version, platform and arch,
+packaged or not, the data directory, whether Google is connected, the surface the reporter was
+on, and the tail of `<dataDir>/steward.log` — which 0010 already writes. Cap that tail: URLs
+stop working somewhere around 8 KB.
+
+One constraint that decides who can use it at all: **a private repo's issues can only be
+opened by collaborators.** The friend on Windows is either added as one, or the repo goes
+public first.
 
 ## Design notes already banked for `0011`
 

@@ -212,10 +212,13 @@ manifest describes the binary. The riskiest packaged path works.
    accrues only with downloads.
 3. **The Windows exe has still never been executed.** Unchanged, and it is the one gap money
    cannot close.
-4. **Auto-update cannot work while the repo is private.** `app/update.ts:30` reads
-   `api.github.com/repos/tjakoen/steward/releases/latest` with no token *by design*, because
-   0009 recorded that releases would be public. A private repo answers 404 forever, so the
-   updater is inert until the visibility flip.
+4. ~~**Auto-update cannot work while the repo is private.**~~ **RESOLVED 2026-08-04 — the repo
+   is PUBLIC.** `app/update.ts:30` reads `api.github.com/repos/tjakoen/steward/releases/latest`
+   with no token *by design* (0009 recorded that releases would be public), and that URL is now
+   reachable unauthenticated. It still answers 404 until the first tag exists, which is the
+   normal no-release-yet case, not a fault. The visibility flip was made after a second history
+   audit came back clean; the audit's findings are in the section above and should not be run a
+   third time.
 
 Also true and worth not rediscovering: the mac target is `arm64` only — no Intel build — and
 the machine that runs a binary still needs Chrome or Edge for PDFs, and Ollama for chat.
@@ -236,9 +239,9 @@ packaged or not, the data directory, whether Google is connected, the surface th
 on, and the tail of `<dataDir>/steward.log` — which 0010 already writes. Cap that tail: URLs
 stop working somewhere around 8 KB.
 
-One constraint that decides who can use it at all: **a private repo's issues can only be
-opened by collaborators.** The friend on Windows is either added as one, or the repo goes
-public first.
+~~One constraint that decides who can use it at all: a private repo's issues can only be opened
+by collaborators.~~ **Moot as of 2026-08-04 — the repo is public and issues are enabled**, so
+anyone with a GitHub account can file one. The friend on Windows needs no collaborator invite.
 
 ## Design notes already banked for `0011`
 

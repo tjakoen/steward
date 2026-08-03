@@ -64,9 +64,18 @@ Items 2 and 3 are a verification pass to run **before** any of them.
 Order confirmed 2026-08-03: verify pass, then `0013` (highest daily value, fully independent),
 then `0012`, `0014`, and `0011` last — it is the only one that can corrupt data.
 
-**`plans/0013-daily-digest.md` is WRITTEN (2026-08-03, status `todo`, ten tasks).** It carries
-the footer defect below as a task, the two mockups as its first two tasks, and the SMTP and
-scheduler decisions. `0011`, `0012` and `0014` are still unwritten.
+**`plans/0013-daily-digest.md` is WRITTEN** and 10 of its 11 tasks are done (2026-08-04); only
+the live SMTP send is left, and it waits on a host and app password from the human, who
+confirmed on 2026-08-04 that they have not entered them yet. **`plans/0012-archive-restore.md`
+is WRITTEN (2026-08-04, status `todo`, eight tasks).** `0011` and `0014` are still unwritten.
+
+Two things `0012` establishes that the others inherit:
+
+- **`Client.active` is retired.** It was never readable, never settable, and never filtered
+  anything; `archivedAt` replaces it, and the mirror's `active` column becomes `archived`.
+- **The schema gains a migration ladder.** `migrate()` could only ever `CREATE TABLE IF NOT
+  EXISTS`; `0012` adds `PRAGMA user_version` steps because it is the first plan that has to
+  `ALTER` a table with real rows in it.
 
 `0013` now also carries the ticket-PDF and daily-report mockups (answer 2), since the report
 layout is its own deliverable and the ticket layout shares the branding with it.
@@ -176,6 +185,10 @@ reading of question 1:
   own, so it is not pullable as it stands.
 - Several columns are **derived projections**, not fields: `client code` on Customers,
   `customer` and `client code` on Tickets. Writing them back is meaningless.
+- **`archived` joins that list** once `0012` lands — archiving is a verb with an audit row, so a
+  date typed into that cell must not archive anything. Archived rows stay in the sheet on
+  purpose: a row that vanished would be indistinguishable from one a view filtered out, and
+  absence already means "neither create nor delete" below.
 - `createdAt`/`updatedAt` are in the sheet and must never be pull targets.
 - A row with a blank id, and a record missing from the sheet, both need a defined meaning.
   Safest is that neither creates nor deletes anything — a filtered or sorted view hides rows,

@@ -115,9 +115,13 @@ paints correctly at the head. Nothing to fix in `header()` (`app/view/pdf.ts:20`
 
 **But no client can ever have a logo.** Found 2026-08-03 while drafting 0013's mockups.
 `clientSchema` (`app/view/html.ts:147`) has six fields and none is the logo; `client.create`
-writes `logoDataUrl: null` as a literal (`app/actions/steward.ts:196`); `client.update` rebuilds
-branding from `clientValues` (`server.ts:299`), which omits it and would therefore **erase** one.
-No route writes it. So the field is typed, mirrored around and rendered — and reachable only by
+writes `logoDataUrl: null` as a literal (`app/actions/steward.ts:196`). No route writes it.
+
+~~`client.update` rebuilds branding from `clientValues` (`server.ts:299`), which omits it and
+would therefore **erase** one.~~ **Wrong — corrected 2026-08-04.** `client.update` spreads
+`...cur.branding` before applying the form's fields (`app/actions/steward.ts:229`), so a logo
+survives an edit. Proved live: uploaded, edited through the door, still there. The field was
+unreachable, never fragile. So the field is typed, mirrored around and rendered — and reachable only by
 hand-written SQL, which is what this verify pass used. Every client is permanently on the
 wordmark. It is `0013`'s `client-logo` task: a multipart `POST /clients/:id/logo`, following
 0006's precedent, because the JSON `/intent` door does not take bytes.
@@ -157,6 +161,10 @@ Chrome's own footer mechanism — `displayHeaderFooter: true` with a `footerTemp
 moved into the `Page.printToPDF` call (`app/pdf/print.ts:176`) instead of `@page`. That is an
 API change to `printToPdf`, so it is **not** applied here: it belongs with `0013`, which
 rewrites this layout against the new mockup anyway. Left unfixed deliberately.
+
+**FIXED 2026-08-04 in `0013`'s `pdf-footer`.** A short ticket is one page; a 90-entry ticket is
+five, with the footer in the margin of every one, a working `Page N of M`, and nothing
+overlapping. Measured by rendering to PNG and looking, not by trusting the page count.
 
 ## Design notes already banked for `0011`
 

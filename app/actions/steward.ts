@@ -14,7 +14,7 @@ export const STEWARD_ACTIONS = [
   'client.create', 'client.update',
   'customer.create', 'customer.update', 'customer.search',
   'ticket.create', 'ticket.update', 'ticket.status', 'ticket.progress',
-  'sheet.push',
+  'sheet.push', 'digest.send',
 ] as const;
 export type StewardAction = (typeof STEWARD_ACTIONS)[number];
 
@@ -73,18 +73,27 @@ export interface SheetPush {
  */
 export interface StewardDeps {
   pushSheet?: () => Promise<SheetPush>;
+  sendDigest?: () => Promise<DigestSend>;
+}
+
+/** What a digest send reports back. Structural, so this module imports no mail code. */
+export interface DigestSend {
+  ok: boolean;
+  error?: string;
+  attachments: number;
+  tickets: number;
 }
 
 /**
- * `sheet.push` is the one verb that talks to Google, and it is the only one that
- * returns a promise. The overloads say exactly that: a caller naming any other
- * action gets a plain result and needs no await, while the door — which only knows
- * it holds *some* action — awaits the union. A second door for the one async verb
- * would split the vocabulary in half for the sake of a keyword.
+ * `sheet.push` and `digest.send` are the verbs that talk to the outside world, and
+ * they are the only ones that return a promise. The overloads say exactly that: a
+ * caller naming any other action gets a plain result and needs no await, while the
+ * door — which only knows it holds *some* action — awaits the union. A second door
+ * for the async verbs would split the vocabulary in half for the sake of a keyword.
  */
 export function dispatchSteward(
   services: Services,
-  intent: StewardIntent & { action: Exclude<StewardAction, 'sheet.push'> },
+  intent: StewardIntent & { action: Exclude<StewardAction, 'sheet.push' | 'digest.send'> },
   deps?: StewardDeps,
 ): StewardResult;
 export function dispatchSteward(
@@ -214,6 +223,24 @@ export function dispatchSteward(
           const counts = Object.entries(r.counts ?? {}).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ');
           return { ok: true, ops: [],
             reply: `Pushed ${counts} to the Sheets mirror.${r.recreated ? ' The previous mirror was gone, so a new one was created.' : ''}${r.note ? ` ${r.note}` : ''}`,
+            data: r };
+        }).catch((e: unknown) => ({
+          ok: false, ops: [], error: e instanceof Error ? e.message : String(e),
+        }));
+      }
+      case 'digest.send': {
+        const send = deps.sendDigest;
+        if (!send) return { ok: false, ops: [], error: 'the daily digest is not configured' };
+        // No render op, same as `sheet.push`: what this verb produces lands in a
+        // mailbox, not on this screen, and a target nothing occupies is worse than
+        // no target at all.
+        return send().then((r): StewardResult => {
+          if (!r.ok) return { ok: false, ops: [], error: r.error ?? 'the send failed' };
+          return { ok: true, ops: [],
+            reply: r.tickets
+              ? `Sent the digest — ${r.tickets} pending ticket${r.tickets === 1 ? '' : 's'}, ` +
+                `${r.attachments} report${r.attachments === 1 ? '' : 's'} attached.`
+              : 'Sent the digest — nothing is pending.',
             data: r };
         }).catch((e: unknown) => ({
           ok: false, ops: [], error: e instanceof Error ? e.message : String(e),

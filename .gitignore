@@ -47,4 +47,11 @@ release/
 
 # nimbalyst session artifacts
 .nimbalyst/
-nimbalyst-local/
+# `nimbalyst-local/*`, not `nimbalyst-local/` — an ignored DIRECTORY is never
+# descended into, so the negation below would do nothing at all (same trap as
+# `build/` above).
+nimbalyst-local/*
+# …except the mockups, which are SOURCE: they are the approved specification the
+# document renderers were written against (0013), and a renderer you cannot compare
+# to anything is a renderer nobody can review.
+!nimbalyst-local/mockups/

@@ -318,6 +318,25 @@ body { --shell-console-min: 0rem; }
 .attach input[type="file"] { font-size: var(--text-xs, .8125rem); }
 form.inline { display: inline; }
 
+/* A checkbox is not a text field: it should sit at the start of its grid cell
+   rather than stretch across one. */
+.fb .form-row input[type="checkbox"] { justify-self: start; width: auto; }
+
+/* ---- Client logo (0013) --------------------------------------------------- */
+/* The well is the SPACE a logo may occupy on a generated document — 220 × 56 —
+   so what the operator sees here is what the PDF will do with it, not a thumbnail
+   at whatever size happened to fit. */
+.logo-well {
+  width: 230px; min-height: 66px; padding: 6px 10px;
+  display: grid; place-items: center;
+  border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  border-radius: var(--radius-md, 6px); background: var(--color-bg, #E2E0D8);
+}
+.logo-well img { max-width: 220px; max-height: 56px; width: auto; height: auto; }
+.logo-well.is-empty {
+  border-style: dashed; color: var(--color-muted, #6E6C64); font-size: var(--text-xs, .8125rem);
+}
+
 .preview {
   margin: var(--space-4, 1rem) 0; border: 1px solid var(--color-line, rgba(28,27,23,.14));
   border-radius: var(--radius-md, 6px); overflow: hidden; background: var(--color-bg, #E2E0D8);

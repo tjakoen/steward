@@ -49,9 +49,16 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
       audit('client', c.id, 'create', by, input);
       return c;
     },
-    updateClient(id: string, patch: Partial<NewClient>, by: string): Client {
+    /**
+     * `diff` overrides what the audit row records, and exists for exactly one
+     * value: the logo. A logo is a base64 image up to 512 KB, and writing the
+     * patch verbatim would put a copy of it in the audit table on every change —
+     * an append-only table, so every copy is forever. The row says a logo was
+     * set; the record itself holds the bytes.
+     */
+    updateClient(id: string, patch: Partial<NewClient>, by: string, diff: unknown = patch): Client {
       const c = repos.clients.update(id, patch);
-      audit('client', id, 'update', by, patch);
+      audit('client', id, 'update', by, diff);
       return c;
     },
 

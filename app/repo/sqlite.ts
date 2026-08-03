@@ -252,6 +252,27 @@ class SqliteDocumentRepository implements DocumentRepository {
       'SELECT * FROM documents WHERE entity = ? AND entityId = ? ORDER BY createdAt DESC',
     ).all(entity, entityId);
   }
+  /**
+   * The same read for many records at once (0013). The daily digest wants the
+   * documents of every pending ticket, and one query per ticket is a query per
+   * ticket. `idx_documents_entity` covers `(entity, entityId)`, so an `IN` list
+   * uses the same index the single-entity read does.
+   */
+  forEntities(entity: string, entityIds: string[]): Map<string, DocumentRef[]> {
+    const out = new Map<string, DocumentRef[]>();
+    if (!entityIds.length) return out;
+    // Placeholders rather than interpolation — these are ids, but they are still
+    // values, and there is no such thing as a value this file trusts.
+    const holes = entityIds.map(() => '?').join(',');
+    const rows = this.d.query<DocumentRef, string[]>(
+      `SELECT * FROM documents WHERE entity = ? AND entityId IN (${holes}) ORDER BY createdAt DESC`,
+    ).all(entity, ...entityIds);
+    for (const r of rows) {
+      const list = out.get(r.entityId);
+      if (list) list.push(r); else out.set(r.entityId, [r]);
+    }
+    return out;
+  }
   get(id: string): DocumentRef | null {
     return this.d.query<DocumentRef, [string]>(
       'SELECT * FROM documents WHERE id = ?',

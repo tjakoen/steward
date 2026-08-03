@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>STEWARD — ticket document mockup (0013)</title>
+<style>
+  /* ---------------------------------------------------------------------
+     The ticket document, as printed. Two things to hold in mind reading it:
+
+     1. Every colour that is not ink or paper comes from Client.branding —
+        primaryColor and secondaryColor are the ONLY levers a client has, so
+        the layout must look deliberate in any pair. Shown here as Acme
+        Advisory (#1f4e5f / #c8a15a); the swatch strip at the bottom of this
+        file re-renders the head in a second client's colours to prove it.
+     2. The footer sits in the PAGE MARGIN, not in the flow — in the real
+        renderer it is Chrome's footerTemplate, which is why a page number
+        is possible at all. Here it is drawn in the margin band so the
+        proportion is honest.
+     --------------------------------------------------------------------- */
+  :root {
+    --brand-primary:#1f4e5f;
+    --brand-secondary:#c8a15a;
+
+    --ink:#1a1a1a; --ink-muted:#5b6169; --ink-faint:#9aa0a6;
+    --paper:#ffffff; --desk:#d8d6cf;
+    --rule:#e6e6e3; --rule-soft:#f0f0ed;
+
+    --font: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --doc-text:11.5px;
+
+    /* A4 at 96dpi, with the print margins the renderer will set. */
+    --page-w:794px; --page-h:1123px;
+    --margin-x:60px; --margin-top:68px; --margin-bottom:83px;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:32px; background:var(--desk); font:var(--doc-text)/1.55 var(--font);
+         color:var(--ink); -webkit-font-smoothing:antialiased; }
+
+  .sheet { width:var(--page-w); min-height:var(--page-h); margin:0 auto 28px; background:var(--paper);
+           box-shadow:0 2px 18px rgba(0,0,0,.18); position:relative;
+           padding:var(--margin-top) var(--margin-x) var(--margin-bottom); }
+
+  /* ---- Head: mark left, company block right, brand rule under both ---- */
+  .doc-head { display:flex; align-items:flex-end; justify-content:space-between; gap:24px;
+              border-bottom:3px solid var(--brand-primary); padding-bottom:12px; }
+  .logo { height:44px; width:auto; }
+  .wordmark { font-size:19px; font-weight:700; letter-spacing:.01em; color:var(--brand-primary); }
+  .company { font-size:9.5px; line-height:1.5; color:var(--ink-muted); text-align:right; white-space:pre-line; }
+
+  /* ---- Title block ---- */
+  .doc-title { margin:26px 0 0; font-size:21px; line-height:1.25; font-weight:650; color:var(--brand-primary); }
+  .doc-kicker { margin:0 0 14px; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                color:var(--brand-secondary); font-weight:600; }
+
+  /* ---- Meta: a real definition grid, not a run-on dotted line ---- */
+  .meta { display:grid; grid-template-columns:repeat(4, 1fr); gap:0; margin:0 0 24px;
+          border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
+  .meta div { padding:9px 14px 9px 0; }
+  .meta dt { margin:0 0 2px; font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); }
+  .meta dd { margin:0; font-size:11.5px; }
+  .meta .code { font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+
+  .pill { display:inline-block; padding:1.5px 9px; border-radius:999px; font-size:10px; font-weight:600;
+          border:1px solid var(--brand-primary); color:var(--brand-primary); }
+  .pill.is-waiting { background:var(--brand-secondary); border-color:var(--brand-secondary); color:#fff; }
+
+  /* ---- Sections ---- */
+  .field { margin:0 0 20px; break-inside:avoid; }
+  .field h2 { margin:0 0 6px; font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+              color:var(--brand-primary); font-weight:700;
+              border-bottom:1px solid var(--brand-secondary); padding-bottom:3px; }
+  .field p { margin:0; white-space:pre-line; }
+
+  /* A callout, because "waiting on X since Y" is the one thing a reader scans for. */
+  .callout { display:flex; gap:12px; align-items:baseline; padding:10px 14px; margin:0 0 20px;
+             border-left:3px solid var(--brand-secondary); background:#faf7f0; }
+  .callout .label { font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-muted); }
+  .callout .who { font-weight:650; }
+  .callout .since { margin-left:auto; font-size:10.5px; color:var(--ink-muted); font-variant-numeric:tabular-nums; }
+
+  /* ---- Tables: one visual language for log, comms and documents ---- */
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:600;
+       color:var(--ink-faint); padding:0 8px 4px 0; border-bottom:1px solid var(--rule); }
+  td { padding:6px 8px 6px 0; border-bottom:1px solid var(--rule-soft); vertical-align:top; }
+  tr:last-child td { border-bottom:0; }
+  .col-date { width:82px; color:var(--ink-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .col-narrow { width:120px; }
+
+  /* Drive links — printed, so the LABEL carries the meaning and the URL is not shown. */
+  .doclink { color:var(--brand-primary); text-decoration:none; border-bottom:1px solid var(--brand-secondary); }
+  .doclink::before { content:"↗"; margin-right:5px; color:var(--brand-secondary); font-size:10px; }
+
+  /* ---- Footer, drawn in the margin band it will really occupy ---- */
+  .doc-foot { position:absolute; left:var(--margin-x); right:var(--margin-x); bottom:34px;
+              display:flex; align-items:center; gap:16px; padding-top:8px;
+              border-top:1px solid var(--rule); font-size:8.5px; color:var(--ink-faint); }
+  .doc-foot .page { margin-left:auto; font-variant-numeric:tabular-nums; }
+
+  /* ---- Mockup-only furniture, never rendered by the app ---- */
+  .note { width:var(--page-w); margin:0 auto 12px; font-size:12px; color:#4a4842; }
+  .note b { color:#1c1b17; }
+  .margin-guide { position:absolute; inset:var(--margin-top) var(--margin-x) var(--margin-bottom);
+                  outline:1px dashed rgba(31,78,95,.22); pointer-events:none; }
+  .swatch { width:var(--page-w); margin:0 auto; display:flex; gap:16px; align-items:flex-start; }
+  .swatch .card { flex:1; background:var(--paper); padding:22px 26px; box-shadow:0 2px 18px rgba(0,0,0,.18); }
+  .cap { margin:0 0 14px; font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); }
+  .alt { --brand-primary:#324a7d; --brand-secondary:#8fb4d9; }
+  .mono { --brand-primary:#1c1b17; --brand-secondary:#8a8781; }
+
+  /* The Settings-side control, so the two halves are designed together. */
+  .logo-field__row { display:flex; align-items:center; gap:16px; }
+  .logo-well { width:230px; height:66px; border:1px solid var(--rule); border-radius:4px;
+               display:grid; place-items:center; padding:6px 10px; background:#fcfcfb; }
+  .logo-well svg { width:100%; height:auto; max-height:52px; }
+  .logo-well.is-empty { border-style:dashed; color:var(--ink-faint); font-size:10.5px; }
+  .logo-field__ctl { display:flex; flex-direction:column; gap:8px; }
+  .btnish { display:inline-block; padding:6px 12px; border:1px solid var(--brand-primary); border-radius:4px;
+            font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+            color:var(--brand-primary); text-align:center; }
+  .btnish.is-quiet { border-color:var(--rule); color:var(--ink-muted); }
+  .logo-field__help { margin:12px 0 0; font-size:10px; line-height:1.5; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+
+<p class="note"><b>Ticket document — 0013 task <code>mockup-ticket</code>.</b>
+  A4, print margins drawn as a dashed guide. What changes against today's renderer:
+  the meta line becomes a labelled grid, <b>Waiting</b> gets a callout,
+  <b>Documents</b> appears at all (Drive links were never on the ticket document),
+  and the footer moves into the margin with a page number — which is what fixes the
+  spurious blank page.</p>
+
+<article class="sheet">
+  <div class="margin-guide"></div>
+
+  <!-- The real renderer emits <img class="logo" src="data:image/png;base64,…">, inlined from
+       Client.branding.logoDataUrl. Drawn as SVG here only so the mockup stays readable. -->
+  <header class="doc-head">
+    <svg class="logo" viewBox="0 0 240 56" role="img" aria-label="Acme Advisory">
+      <rect x="0" y="6" width="44" height="44" rx="8" fill="var(--brand-primary)"/>
+      <path d="M13 39 L22 17 L31 39 M17.5 32 H26.5" fill="none" stroke="#fff" stroke-width="3"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="36" y="6" width="8" height="44" rx="4" fill="var(--brand-secondary)"/>
+      <text x="58" y="27" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700"
+            fill="var(--brand-primary)">Acme Advisory</text>
+      <text x="58" y="42" font-family="Inter, system-ui, sans-serif" font-size="9"
+            letter-spacing="1.6" fill="var(--brand-secondary)">FINANCIAL ADVICE</text>
+    </svg>
+    <div class="company">Acme Advisory Pty Ltd
+123 Sample Street, Exampleton
+ABN 00 000 000 000</div>
+  </header>
+
+  <p class="doc-kicker" style="margin-top:26px">Task ticket</p>
+  <h1 class="doc-title" style="margin-top:0">Service Agreement Renewal</h1>
+
+  <dl class="meta">
+    <div><dt>Ticket</dt><dd class="code">TXSMIT0001</dd></div>
+    <div><dt>Customer</dt><dd>Smith, John &amp; Mary</dd></div>
+    <div><dt>Status</dt><dd><span class="pill is-waiting">Waiting</span></dd></div>
+    <div><dt>Initiated</dt><dd>27 Jul 2026</dd></div>
+  </dl>
+
+  <div class="callout">
+    <span class="label">Waiting on</span>
+    <span class="who">Client</span>
+    <span class="since">since 27 Jul 2026 · 7 days</span>
+  </div>
+
+  <section class="field">
+    <h2>Summary</h2>
+    <p>Prepare service agreement renewal documentation ahead of the annual review. The existing
+agreement lapses at the end of the quarter and the fee schedule has changed.</p>
+  </section>
+
+  <section class="field">
+    <h2>Next action</h2>
+    <p>Chase signed authority, then lodge the renewal.</p>
+  </section>
+
+  <section class="field">
+    <h2>Progress log</h2>
+    <table>
+      <tbody>
+        <tr><td class="col-date">1 Aug 2026</td><td>Second reminder sent. No response yet.</td></tr>
+        <tr><td class="col-date">29 Jul 2026</td><td>Authority form emailed to the client for signature.</td></tr>
+        <tr><td class="col-date">27 Jul 2026</td><td>Task ticket created.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="field">
+    <h2>Communications</h2>
+    <table>
+      <thead><tr><th class="col-date">Date</th><th>Subject</th></tr></thead>
+      <tbody>
+        <tr><td class="col-date">1 Aug 2026</td><td>RE: Service agreement — signature required</td></tr>
+        <tr><td class="col-date">29 Jul 2026</td><td>Service agreement renewal — authority form attached</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="field">
+    <h2>Documents</h2>
+    <table>
+      <thead><tr><th>File</th><th class="col-narrow">Source</th><th class="col-date">Added</th></tr></thead>
+      <tbody>
+        <tr><td><a class="doclink" href="#">Authority form (signed).pdf</a></td><td class="col-narrow">Uploaded</td><td class="col-date">29 Jul 2026</td></tr>
+        <tr><td><a class="doclink" href="#">TXSMIT0001.pdf</a></td><td class="col-narrow">Generated</td><td class="col-date">27 Jul 2026</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer class="doc-foot">
+    <span>Acme Advisory — sample footer. This is demo data.</span>
+    <span class="page">Page 1 of 1</span>
+  </footer>
+</article>
+
+<p class="note"><b>Branding is data, not decoration.</b> The same head in another client's colours,
+  and in the fallback a client who has set nothing gets. Nothing in the layout assumes a
+  particular hue.
+  <br><b>The logo is the open question.</b> Today <code>logoDataUrl</code> is read by the
+  renderer and <b>cannot be set by anything</b> — no form field, no route, and
+  <code>client.update</code> would drop it if there were one. So every client currently gets the
+  RIGHT-HAND fallback below, and the head above is unreachable until 0013's
+  <code>client-logo</code> task lands. The box shows the space a logo may occupy:
+  <b>220 × 56 px</b>, height-constrained, left-aligned against the company block.</p>
+
+<div class="swatch">
+  <div class="card alt">
+    <p class="cap">Logo set · another client's colours</p>
+    <header class="doc-head">
+      <svg class="logo" viewBox="0 0 240 56" role="img" aria-label="Northwind Planning">
+        <circle cx="24" cy="28" r="20" fill="var(--brand-primary)"/>
+        <path d="M15 33 L24 19 L33 33 Z" fill="var(--brand-secondary)"/>
+        <text x="54" y="26" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="700"
+              fill="var(--brand-primary)">Northwind</text>
+        <text x="54" y="41" font-family="Inter, system-ui, sans-serif" font-size="9"
+              letter-spacing="1.6" fill="var(--brand-secondary)">PLANNING</text>
+      </svg>
+      <div class="company">Northwind Planning
+456 Demo Avenue, Testville</div>
+    </header>
+    <p class="doc-kicker" style="margin-top:14px">Task ticket</p>
+    <h1 class="doc-title" style="margin-top:0;font-size:17px">Annual Statement</h1>
+    <p style="margin:10px 0 0"><span class="pill">In Progress</span></p>
+  </div>
+  <div class="card mono">
+    <p class="cap">No logo — <b>every client today</b></p>
+    <header class="doc-head">
+      <span class="wordmark">Unbranded Client</span>
+      <div class="company">No company info set</div>
+    </header>
+    <p class="doc-kicker" style="margin-top:14px">Task ticket</p>
+    <h1 class="doc-title" style="margin-top:0;font-size:17px">Review Meeting</h1>
+    <p style="margin:10px 0 0"><span class="pill">Not Commenced</span></p>
+  </div>
+</div>
+
+<p class="note" style="margin-top:24px"><b>Setting one — 0013 task <code>client-logo</code>.</b>
+  A logo is bytes and the JSON <code>/intent</code> door does not take bytes, so this follows
+  0006's precedent for attachments: a multipart <code>POST /clients/:id/logo</code> that
+  validates, converts to a <code>data:</code> URL server-side and writes it through
+  <code>updateClient</code>, audited like any other change. PNG and JPEG only — SVG in an
+  <code>&lt;img&gt;</code> is script-bearing — capped at 512 KB, because this value is inlined
+  into every document the client ever generates.</p>
+
+<div class="swatch">
+  <div class="card">
+    <div class="logo-field">
+      <div class="logo-field__row">
+        <div class="logo-well">
+          <svg viewBox="0 0 240 56" role="img" aria-label="Acme Advisory">
+            <rect x="0" y="6" width="44" height="44" rx="8" fill="var(--brand-primary)"/>
+            <path d="M13 39 L22 17 L31 39 M17.5 32 H26.5" fill="none" stroke="#fff" stroke-width="3"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="36" y="6" width="8" height="44" rx="4" fill="var(--brand-secondary)"/>
+            <text x="58" y="27" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700"
+                  fill="var(--brand-primary)">Acme Advisory</text>
+            <text x="58" y="42" font-family="Inter, system-ui, sans-serif" font-size="9"
+                  letter-spacing="1.6" fill="var(--brand-secondary)">FINANCIAL ADVICE</text>
+          </svg>
+        </div>
+        <div class="logo-field__ctl">
+          <span class="btnish">Replace logo…</span>
+          <span class="btnish is-quiet">Remove</span>
+        </div>
+      </div>
+      <p class="logo-field__help">PNG or JPEG, up to 512 KB. Shown at 220 × 56 on generated
+        documents — anything larger is stored but never seen.</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="logo-field">
+      <div class="logo-field__row">
+        <div class="logo-well is-empty">No logo set</div>
+        <div class="logo-field__ctl"><span class="btnish">Upload logo…</span></div>
+      </div>
+      <p class="logo-field__help">Documents fall back to the client's name as a wordmark, in the
+        primary colour. That is a real design, not a placeholder — a client may prefer it.</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

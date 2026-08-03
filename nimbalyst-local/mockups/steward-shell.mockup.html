@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>STEWARD — app shell mockup</title>
+<style>
+  /* ---- GRAIN tokens (Sourdough monochrome + Baguette accent for signal) ---- */
+  :root {
+    --paper:#E2E0D8; --paper-2:#E8E6DF; --panel:#E8E6DF;
+    --ink:#1C1B17; --ink-muted:#6E6C64; --ink-faint:#ABA89F;
+    --hairline:#1C1B17; --line-soft:rgba(28,27,23,.14);
+    --accent:#2F6FE0; --accent-soft:#E7EEFB; --accent-contrast:#fff;
+    --font: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --text-xs:0.8125rem; --text-sm:0.875rem; --text-base:0.9375rem; --text-lg:1.05rem; --text-xl:1.3rem;
+    --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.25rem; --space-6:1.5rem;
+    --radius:6px; --sidebar-w:236px; --topbar-h:52px;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:var(--text-base)/1.5 var(--font); color:var(--ink); background:var(--paper); -webkit-font-smoothing:antialiased; }
+
+  /* ---- Shell: fixed sidebar + content column ---- */
+  .shell { display:grid; grid-template-columns:var(--sidebar-w) 1fr; height:100vh; }
+
+  /* ---- Sidebar ---- */
+  .sidebar { display:flex; flex-direction:column; background:var(--panel); border-right:1px solid var(--line-soft); }
+  .brand { display:flex; align-items:center; gap:var(--space-2); height:var(--topbar-h); padding:0 var(--space-5);
+           border-bottom:1px solid var(--line-soft); font-weight:600; letter-spacing:.02em; }
+  .brand .dot { width:22px; height:22px; border-radius:5px; background:var(--ink); color:var(--paper);
+                display:grid; place-items:center; font-size:13px; font-weight:700; }
+  .nav { flex:1; padding:var(--space-4) var(--space-3); display:flex; flex-direction:column; gap:2px; }
+  .nav .group-label { font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint);
+                      padding:var(--space-3) var(--space-3) var(--space-1); }
+  .nav a { display:flex; align-items:center; gap:var(--space-3); padding:var(--space-2) var(--space-3);
+           border-radius:var(--radius); color:var(--ink-muted); text-decoration:none; font-size:var(--text-sm); }
+  .nav a .ico { width:18px; text-align:center; opacity:.8; }
+  .nav a:hover { background:var(--paper-2); color:var(--ink); }
+  .nav a.active { background:var(--ink); color:var(--paper); }
+  .nav a.active .ico { opacity:1; }
+  .nav .count { margin-left:auto; font-size:var(--text-xs); color:var(--ink-faint); font-variant-numeric:tabular-nums; }
+  .nav a.active .count { color:var(--paper); opacity:.7; }
+  .nav .spacer { flex:1; }
+  .sidebar-foot { padding:var(--space-3); border-top:1px solid var(--line-soft); display:flex; align-items:center; gap:var(--space-2); }
+  .sidebar-foot .who { font-size:var(--text-xs); color:var(--ink-muted); }
+  .sidebar-foot .who strong { color:var(--ink); display:block; font-size:var(--text-sm); }
+  .avatar { width:28px; height:28px; border-radius:50%; background:var(--accent-soft); color:var(--accent);
+            display:grid; place-items:center; font-size:12px; font-weight:600; }
+
+  /* ---- Content column ---- */
+  .content { display:flex; flex-direction:column; min-width:0; }
+  .topbar { display:flex; align-items:center; gap:var(--space-4); height:var(--topbar-h); padding:0 var(--space-6);
+            border-bottom:1px solid var(--line-soft); background:var(--panel); }
+  .crumbs { font-size:var(--text-sm); color:var(--ink-muted); }
+  .crumbs strong { color:var(--ink); font-weight:600; }
+  .search { flex:1; max-width:360px; margin-left:var(--space-4); position:relative; }
+  .search input { width:100%; padding:var(--space-2) var(--space-3) var(--space-2) 30px; font:inherit; font-size:var(--text-sm);
+                  border:1px solid var(--line-soft); border-radius:var(--radius); background:var(--paper); color:var(--ink); }
+  .search .mag { position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--ink-faint); font-size:13px; }
+  .topbar .right { margin-left:auto; display:flex; align-items:center; gap:var(--space-2); }
+  .btn { font:inherit; font-size:var(--text-sm); padding:var(--space-2) var(--space-4); border-radius:var(--radius);
+         border:1px solid var(--hairline); background:transparent; color:var(--ink); cursor:pointer; }
+  .btn.primary { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .btn.icon { padding:var(--space-2); width:34px; }
+
+  .pane { flex:1; overflow:auto; padding:var(--space-6); }
+  .page-head { display:flex; align-items:flex-end; gap:var(--space-4); margin-bottom:var(--space-5); }
+  .page-head h1 { margin:0; font-size:var(--text-xl); font-weight:600; }
+  .page-head .sub { color:var(--ink-muted); font-size:var(--text-sm); margin-left:auto; }
+
+  /* ---- Table (JIRA/Notion style) ---- */
+  .card { background:var(--panel); border:1px solid var(--line-soft); border-radius:8px; overflow:hidden; }
+  table { width:100%; border-collapse:collapse; font-size:var(--text-sm); }
+  thead th { text-align:left; font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.05em; color:var(--ink-muted);
+             font-weight:600; padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line-soft); background:var(--paper-2); }
+  tbody td { padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line-soft); color:var(--ink); }
+  tbody tr:last-child td { border-bottom:0; }
+  tbody tr:hover td { background:var(--paper-2); cursor:pointer; }
+  td .name { font-weight:600; }
+  td .muted { color:var(--ink-muted); }
+  .mono { font-family:var(--mono); font-size:var(--text-xs); color:var(--ink-muted); }
+  .swatch { width:11px; height:11px; border-radius:3px; display:inline-block; vertical-align:middle; margin-right:6px; border:1px solid var(--line-soft); }
+  .badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:var(--text-xs); font-weight:500;
+           border:1px solid var(--line-soft); color:var(--ink-muted); }
+  .badge.open { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+
+  /* ---- Board (compact) ---- */
+  .board { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); }
+  .col { background:var(--panel); border:1px solid var(--line-soft); border-radius:8px; padding:var(--space-3); }
+  .col h3 { margin:0 0 var(--space-3); font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.05em;
+            color:var(--ink-muted); display:flex; justify-content:space-between; }
+  .ticket { background:var(--paper); border:1px solid var(--line-soft); border-radius:var(--radius);
+            padding:var(--space-3); margin-bottom:var(--space-2); }
+  .ticket .t { font-weight:600; font-size:var(--text-sm); }
+  .ticket .m { color:var(--ink-muted); font-size:var(--text-xs); margin-top:2px; }
+
+  .section-title { font-size:var(--text-xs); text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint);
+                   margin:var(--space-6) 0 var(--space-3); }
+
+  /* ---- Chat dock ---- */
+  .chat-fab { position:fixed; bottom:var(--space-5); right:var(--space-5); background:var(--ink); color:var(--paper);
+              border:none; border-radius:999px; padding:var(--space-3) var(--space-5); font:inherit; font-size:var(--text-sm);
+              box-shadow:0 6px 20px rgba(0,0,0,.18); cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <!-- SIDEBAR: primary nav -->
+    <aside class="sidebar">
+      <div class="brand"><span class="dot">S</span> STEWARD</div>
+      <nav class="nav">
+        <a href="#"><span class="ico">◆</span> Home</a>
+        <span class="group-label">Workspace</span>
+        <a href="#"><span class="ico">▤</span> Clients <span class="count">4</span></a>
+        <a href="#"><span class="ico">☰</span> Customers <span class="count">12</span></a>
+        <a href="#" class="active"><span class="ico">◧</span> Tickets <span class="count">7</span></a>
+        <div class="spacer"></div>
+        <a href="#"><span class="ico">?</span> Help</a>
+        <a href="#"><span class="ico">⚙</span> Settings</a>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="avatar">TS</span>
+        <span class="who"><strong>Tjakoen</strong>local workspace</span>
+      </div>
+    </aside>
+
+    <!-- CONTENT: topbar + pane -->
+    <div class="content">
+      <header class="topbar">
+        <span class="crumbs">Workspace / <strong>Customers</strong></span>
+        <div class="search"><span class="mag">⌕</span><input placeholder="Search name, code, email…" /></div>
+        <div class="right">
+          <button class="btn icon" title="Toggle theme">◐</button>
+          <button class="btn primary">+ New customer</button>
+        </div>
+      </header>
+
+      <div class="pane">
+        <div class="page-head">
+          <h1>Customers</h1>
+          <span class="sub">12 records · 4 clients</span>
+        </div>
+
+        <!-- TABLE view -->
+        <div class="card">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Client</th><th>Code</th><th>Email</th><th>Open tickets</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="name">Doe, Jane</span></td><td><span class="swatch" style="background:#2F6FE0"></span>Acme Advisory</td><td class="mono">jdoe-01</td><td class="muted">jane@example.com</td><td><span class="badge open">2 open</span></td></tr>
+              <tr><td><span class="name">Vermeer, Piet &amp; Anna</span></td><td><span class="swatch" style="background:#B77F1E"></span>Brioche &amp; Co</td><td class="mono">pver-04</td><td class="muted">piet@example.com</td><td><span class="badge">—</span></td></tr>
+              <tr><td><span class="name">Nguyen, Thi</span></td><td><span class="swatch" style="background:#2F6FE0"></span>Acme Advisory</td><td class="mono">tngu-02</td><td class="muted">thi@example.com</td><td><span class="badge open">1 open</span></td></tr>
+              <tr><td><span class="name">Okafor, Chidi</span></td><td><span class="swatch" style="background:#3a7d44"></span>Green Partners</td><td class="mono">coka-07</td><td class="muted">chidi@example.com</td><td><span class="badge">—</span></td></tr>
+              <tr><td><span class="name">Silva, Marco</span></td><td><span class="swatch" style="background:#B77F1E"></span>Brioche &amp; Co</td><td class="mono">msil-03</td><td class="muted">marco@example.com</td><td><span class="badge open">3 open</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Second view: board, to show it lives in the same shell -->
+        <div class="section-title">Tickets board (same shell, different surface)</div>
+        <div class="board">
+          <div class="col"><h3>Open <span>3</span></h3>
+            <div class="ticket"><div class="t">Annual review</div><div class="m">TCK-101 · Doe, Jane</div></div>
+            <div class="ticket"><div class="t">Onboarding docs</div><div class="m">TCK-104 · Silva, Marco</div></div>
+          </div>
+          <div class="col"><h3>Active <span>2</span></h3>
+            <div class="ticket"><div class="t">Tax filing Q3</div><div class="m">TCK-098 · Nguyen, Thi</div></div>
+          </div>
+          <div class="col"><h3>Waiting <span>1</span></h3>
+            <div class="ticket"><div class="t">Signature</div><div class="m">TCK-091 · waiting: client</div></div>
+          </div>
+          <div class="col"><h3>Done <span>1</span></h3>
+            <div class="ticket"><div class="t">Setup call</div><div class="m">TCK-088 · Okafor, Chidi</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="chat-fab">✦ Ask STEWARD</button>
+</body>
+</html>

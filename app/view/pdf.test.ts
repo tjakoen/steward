@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import { renderTicketDocument } from './pdf.ts';
-import type { Client, Customer, Ticket } from '../domain/types.ts';
+import { documentPrintOptions } from './doc.ts';
+import type { Client, Customer, DocumentRef, Ticket } from '../domain/types.ts';
 
 function makeClient(over: Partial<Client['branding']> = {}): Client {
   return {
@@ -36,10 +37,27 @@ test('emits branding as CSS custom properties (tokens, not literals)', () => {
   expect(html).toContain('--brand-secondary: #c8a15a');
 });
 
-test('prints the pdfFooter and companyInfo from Client.branding', () => {
+test('prints companyInfo from Client.branding', () => {
   const html = renderTicketDocument(makeTicket(), customer, makeClient());
-  expect(html).toContain('Acme · confidential');
   expect(html).toContain('12 King St');
+});
+
+// 0013 moved the footer OUT of the flow and into Chrome's footerTemplate. A
+// `position: fixed` footer below the content box is overflow, and overflow is a
+// second page — every short ticket used to ship a near-blank page 2.
+test('the footer is not in the document body any more', () => {
+  const html = renderTicketDocument(makeTicket(), customer, makeClient());
+  expect(html).not.toContain('doc-foot');
+  expect(html).not.toContain('Acme · confidential');
+});
+
+test('the pdfFooter rides in the print options instead, with a page number', () => {
+  const opts = documentPrintOptions(makeClient());
+  expect(opts.footerTemplate).toContain('Acme · confidential');
+  expect(opts.footerTemplate).toContain('class="pageNumber"');
+  expect(opts.footerTemplate).toContain('class="totalPages"');
+  // Margins move out of @page and into the CDP call, or the templates have no box.
+  expect(opts.margins?.bottom).toBeGreaterThan(0);
 });
 
 test('null logo degrades to a text wordmark', () => {
@@ -99,4 +117,51 @@ test('renders without a customer or client (orphan record)', () => {
   const html = renderTicketDocument(makeTicket(), null, null);
   expect(html).toContain('TXDOEX0001');
   expect(html).toContain('—');
+});
+
+// ---- 0013: the meta grid, the callout and the Documents section -------------
+
+test('the meta line is a labelled grid, and the status is a pill', () => {
+  const html = renderTicketDocument(makeTicket(), customer, makeClient());
+  expect(html).toContain('<dl class="meta">');
+  expect(html).toContain('<dt>Ticket</dt>');
+  expect(html).toContain('<span class="pill">In Progress</span>');
+  expect(html).toContain('1 Jul 2026'); // dates are read, not ISO
+});
+
+test('Waiting gets the pill AND the callout, aged in days', () => {
+  const html = renderTicketDocument(
+    makeTicket({ status: 'Waiting', waitingOn: 'Client', waitingSince: '2026-07-01' }),
+    customer, makeClient(), [], '2026-07-08',
+  );
+  expect(html).toContain('pill is-waiting');
+  expect(html).toContain('class="callout"');
+  expect(html).toContain('since 1 Jul 2026 · 7 days');
+});
+
+const doc = (over: Partial<DocumentRef> = {}): DocumentRef => ({
+  id: 'doc_1', entity: 'ticket', entityId: 'tkt_1', name: 'Authority form.pdf',
+  mimeType: 'application/pdf', size: 100, source: 'upload', storage: 'drive',
+  storageId: 'x', webViewLink: 'https://drive.google.com/file/d/x/view',
+  createdAt: '2026-07-29', createdBy: 'human', ...over,
+});
+
+test('the Documents section carries the Drive link', () => {
+  const html = renderTicketDocument(makeTicket(), customer, makeClient(), [doc()]);
+  expect(html).toContain('<h2>Documents</h2>');
+  expect(html).toContain('https://drive.google.com/file/d/x/view');
+  expect(html).toContain('Uploaded');
+});
+
+test('no documents means no Documents section at all', () => {
+  expect(renderTicketDocument(makeTicket(), customer, makeClient(), []))
+    .not.toContain('<h2>Documents</h2>');
+});
+
+test('a locally stored document prints as text, not as a dead link', () => {
+  const html = renderTicketDocument(
+    makeTicket(), customer, makeClient(), [doc({ storage: 'local', webViewLink: '' })],
+  );
+  expect(html).toContain('Authority form.pdf');
+  expect(html).not.toContain('<a class="doclink"');
 });

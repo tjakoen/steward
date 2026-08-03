@@ -1,7 +1,7 @@
 ---
 id: 0013-daily-digest
 title: STEWARD — a daily digest of pending tickets, and the branded document it carries
-status: todo
+status: in-progress
 owner: admin
 created: 2026-08-03
 milestone: M3 (ship it)
@@ -9,39 +9,41 @@ tags: [email, smtp, scheduler, pdf, branding, mockup, reporting]
 tasks:
   - id: mockup-ticket
     title: A mockup for the ticket document — the first one that has ever existed
-    status: todo
-    note: drafted 2026-08-03 as nimbalyst-local/mockups/steward-ticket.mockup.html — AWAITING HUMAN APPROVAL, not done
+    status: done
+    note: APPROVED by the human 2026-08-04, unchanged; now tracked in git
   - id: mockup-report
     title: A mockup for the digest report, sharing the ticket document's furniture
-    status: todo
-    note: drafted 2026-08-03 as nimbalyst-local/mockups/steward-digest.mockup.html — AWAITING HUMAN APPROVAL, not done
+    status: done
+    note: APPROVED by the human 2026-08-04, unchanged; now tracked in git
   - id: client-logo
     title: Let a client actually HAVE a logo — the field is read but nothing can write it
-    status: todo
+    status: done
   - id: pdf-footer
     title: Kill the spurious page — a real print footer via displayHeaderFooter
-    status: todo
+    status: done
   - id: pdf-adopt
     title: Reshape renderTicketDocument to the mockup, branding still as data
-    status: todo
+    status: done
   - id: report-render
     title: renderDigestDocument — pending tickets per client, carrying Drive links
-    status: todo
+    status: done
   - id: smtp
     title: app/mail/smtp.ts — a minimal SMTP client, and a MIME message with an attachment
-    status: todo
+    status: done
   - id: digest-settings
     title: A Settings card that states what is true, holds the secret, and sends on a click
-    status: todo
+    status: done
   - id: scheduler
     title: A clock that survives a closed laptop — tick, due-check, same-day catch-up
-    status: todo
+    status: done
   - id: digest-send
     title: `digest.send` through the /intent door, so the AI can send one too
-    status: todo
+    status: done
   - id: verify
     title: The gate — what this Mac and a real mailbox can actually prove
-    status: todo
+    status: in-progress
+    note: everything this Mac can prove is proven (2026-08-04); the live send is the one
+      step that cannot be faked and waits on an SMTP host from the human
 ---
 
 # STEWARD — the daily digest (0013)
@@ -105,9 +107,15 @@ made present:
   company info, PDF footer. There is no logo field, and that one schema drives create, edit
   **and** view.
 - `client.create` writes `logoDataUrl: null` as a literal (`app/actions/steward.ts:196`).
-- `client.update` rebuilds branding out of `clientValues` (`server.ts:299`), which does not
-  carry the logo — so an edit would **erase** a logo that somehow existed.
 - No route, no action and no seed ever writes a non-null value.
+
+**One claim in the paragraph above was wrong, and is corrected here.** This plan and
+`plans/BACKLOG.md` both said `client.update` would *erase* a logo, because it rebuilds branding
+out of `clientValues` (`server.ts:299`), which omits the field. It does not: the action spreads
+`...cur.branding` first (`app/actions/steward.ts:229`), so anything the form does not carry is
+preserved. Checked by reading it and then proved live on 2026-08-04 — a logo uploaded, the
+client edited through the `/intent` door, the logo still there afterwards. So the defect was
+only ever half as bad as recorded: the field is unreachable, not fragile.
 
 So `logoDataUrl` is a field that is typed, mirrored around (deliberately excluded from the
 Sheets mirror, `app/google/mirror.ts:60`), rendered properly — and unreachable. Every client is
@@ -136,7 +144,13 @@ document the client ever generates and into their row in SQLite:
   a resize step can come later if real logos turn out to be huge.
 
 Removing a logo has to be possible too — a checkbox or a clear button, not "upload a white
-square". And `clientValues` must stop dropping the field on edit either way.
+square".
+
+One thing the plan did not anticipate: `services.updateClient` audits the patch verbatim, so
+writing the logo through it would put half a megabyte of base64 into the `audit` table on every
+change — an **append-only** table, so every copy is permanent. `updateClient` therefore takes an
+optional `diff` that overrides what the row records, and the route passes
+`{ logo: 'image/png', bytes: 1805 }`. The row says a logo was set; the record holds the bytes.
 
 ## The footer is broken today, and it is this plan's problem
 
@@ -302,6 +316,41 @@ as an action with the recipient recorded and the message body not.
   do nothing, clear `last_sent_on` and watch it send again.
 - A wrong password produces a legible failure in Settings and in `steward.log`, not a silent
   nothing.
+
+## Built 2026-08-04 — and what the browser pass caught
+
+Both mockups were approved unchanged by the human on 2026-08-04, and are now tracked in git
+(`.gitignore` ignores `nimbalyst-local/*` with `!nimbalyst-local/mockups/` negated back in —
+the same trap the `build/` entry documents, since an ignored *directory* is never descended
+into and a negation under it would do nothing).
+
+Ten of the eleven tasks are done. What the pass proved, by executing it:
+
+- **The spurious page is gone.** Short ticket: 1 page, was 2. A 90-entry ticket: 5 pages
+  (not the 3 the old layout made — the log is a table now, and rows are taller), footer in the
+  margin of every page, `Page 2 of 5` correct, nothing painted on top of the log.
+- **The logo is settable.** A real PNG through `POST /clients/:id/logo` lands in the head of
+  both documents. An SVG is refused by its *bytes*, not its declared type; 600 KB is refused
+  with a sentence saying why the cap exists. The audit row reads `logo set`, and holds 40 bytes.
+- **The report renders** with the three groups in the intended order, the Waiting group aged
+  and sorted oldest first, and real `webViewLink`s from Drive.
+- **The Settings card** states what is missing by name, keeps the password when the box is
+  submitted empty, and never renders it back.
+
+**The one defect this pass found, and it is worth writing down.** The footer template is a
+`style="…"` ATTRIBUTE, not a stylesheet — and the shared font stack contains `"Segoe UI"`.
+Those double quotes closed the attribute, discarding every declaration after it. The result was
+not a missing footer, which anyone would notice, but a nearly invisible one crushed into the
+bottom-left corner in a serif face. `footerTemplate` now uses a quote-free stack
+(`Helvetica, Arial, sans-serif`), and `doc.test.ts` asserts that no `style="…"` in the template
+contains a quote. `tsc` cannot see this and neither can a page-count check; only looking found it.
+
+**Not proven, and cannot be here:** a real email arriving at a real mailbox. The transport is
+written and tested against a scripted server — the multi-line reply reader, dot-stuffing, CRLF,
+`AUTH PLAIN`, the encoded-word subject and the RFC 2231 filename all have tests — but no socket
+has been opened to a real host. That is the gate, and it waits on an SMTP host and app password
+from the human. Until then the Settings card's **Send now** is disabled and the scheduler's
+due-check returns `unconfigured`.
 
 ## Still open, and deliberately not decided here
 

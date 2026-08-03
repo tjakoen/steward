@@ -348,6 +348,10 @@ export function auditSummary(e: AuditEntry): string {
   if ('attached' in d) return d.source === 'generated' ? 'document generated' : 'file uploaded';
   if ('linked' in d) return 'Drive file linked';
   if ('removedDocument' in d) return 'document removed';
+  // The digest leaves the building, so it audits against every client whose work
+  // was in it. The recipient is in the diff; the message body never is.
+  if ('digestSentTo' in d) return 'daily digest emailed';
+  if ('logo' in d) return d.logo === null ? 'logo removed' : 'logo set';
 
   // A create writes every field; "created Ticket TCK-4" already said it.
   if (e.action === 'create') return '';

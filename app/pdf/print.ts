@@ -157,11 +157,80 @@ async function readWsEndpoint(stream: ReadableStream<Uint8Array>): Promise<strin
   throw new Error('Chrome did not expose a DevTools endpoint in time.');
 }
 
+/** CDP speaks inches. Everything else in this project speaks millimetres. */
+export const mm = (v: number): number => v / 25.4;
+
+/** A4, in the inches `Page.printToPDF` wants. */
+const A4 = { width: mm(210), height: mm(297) };
+
+/**
+ * Margins and the header/footer that live inside them (0013).
+ *
+ * These two travel together and cannot be separated: Chrome lays the templates out in
+ * the margin box that THIS CALL defines, so `preferCSSPageSize` (which hands page
+ * geometry to the document's `@page`) and `footerTemplate` do not co-operate. Passing
+ * any of this therefore switches the page size over to `paper`/`margins` as well.
+ *
+ * All values are millimetres.
+ */
+export interface PrintOptions {
+  /** Page size. A4 unless something says otherwise. */
+  paper?: { width: number; height: number };
+  margins?: { top: number; right: number; bottom: number; left: number };
+  /**
+   * Fragments rendered into the top and bottom margin of EVERY page. Two traps:
+   * they are laid out in a separate document with no access to the page's CSS
+   * (so every style must be inline, and the default font size is unreadably
+   * small unless set), and they are clipped to the margin — a footer needs a
+   * bottom margin big enough to hold it or it silently does not appear.
+   *
+   * `pageNumber`/`totalPages`/`date`/`title`/`url` are Chrome's own classes:
+   * an element carrying one has its text replaced.
+   */
+  headerTemplate?: string;
+  footerTemplate?: string;
+}
+
+/** Nothing at all — NOT the same as omitting the template, which restores Chrome's default. */
+const BLANK = '<span></span>';
+
+/**
+ * The CDP parameter object, split out and exported so the rules above can be tested
+ * without a browser — the two traps are both "the wrong param object", and a test that
+ * needs Chrome to catch them is a test CI skips.
+ */
+export function printParams(opts?: PrintOptions): Record<string, unknown> {
+  // The no-options call must stay byte-for-byte what it was before 0013: it is
+  // shared with scripts/make-icon.ts and with every caller that only wants @page honoured.
+  if (!opts) return { printBackground: true, preferCSSPageSize: true };
+
+  const paper = opts.paper ? { width: mm(opts.paper.width), height: mm(opts.paper.height) } : A4;
+  const m = opts.margins ?? { top: 18, right: 16, bottom: 22, left: 16 };
+  const params: Record<string, unknown> = {
+    printBackground: true,
+    preferCSSPageSize: false,
+    paperWidth: paper.width,
+    paperHeight: paper.height,
+    marginTop: mm(m.top),
+    marginRight: mm(m.right),
+    marginBottom: mm(m.bottom),
+    marginLeft: mm(m.left),
+  };
+  if (opts.headerTemplate !== undefined || opts.footerTemplate !== undefined) {
+    params.displayHeaderFooter = true;
+    // Omitting one while displaying the other is how you accidentally ship Chrome's
+    // stock header — the document title and the date, on a branded document.
+    params.headerTemplate = opts.headerTemplate ?? BLANK;
+    params.footerTemplate = opts.footerTemplate ?? BLANK;
+  }
+  return params;
+}
+
 /**
  * Render an HTML document to PDF bytes via CDP `Page.printToPDF`.
  * Launches (and reuses) a headless browser; each call uses a fresh target.
  */
-export async function printToPdf(html: string): Promise<Uint8Array> {
+export async function printToPdf(html: string, opts?: PrintOptions): Promise<Uint8Array> {
   if (!browser) browser = launch().catch((e) => { browser = null; throw e; });
   const { cdp } = await browser;
 
@@ -173,11 +242,7 @@ export async function printToPdf(html: string): Promise<Uint8Array> {
     const dataUrl = 'data:text/html;base64,' + Buffer.from(html, 'utf8').toString('base64');
     await cdp.send('Page.navigate', { url: dataUrl }, sessionId);
     await loaded;
-    const { data } = await cdp.send(
-      'Page.printToPDF',
-      { printBackground: true, preferCSSPageSize: true },
-      sessionId,
-    );
+    const { data } = await cdp.send('Page.printToPDF', printParams(opts), sessionId);
     return new Uint8Array(Buffer.from(data, 'base64'));
   } finally {
     await cdp.send('Target.closeTarget', { targetId }).catch(() => {});

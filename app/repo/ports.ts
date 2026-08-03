@@ -54,6 +54,8 @@ export type NewDocument = Omit<DocumentRef, 'id' | 'createdAt'>;
 export interface DocumentRepository {
   list(): DocumentRef[];
   forEntity(entity: string, entityId: string): DocumentRef[];
+  /** The same read for many records at once, keyed by entityId. Missing ids are absent. */
+  forEntities(entity: string, entityIds: string[]): Map<string, DocumentRef[]>;
   get(id: string): DocumentRef | null;
   create(input: NewDocument): DocumentRef;
   remove(id: string): void;

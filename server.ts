@@ -48,7 +48,16 @@ import type { AuditEntity, Client, Customer, DocumentRef, Ticket, TicketStatus }
 import { TICKET_STATUSES } from './app/domain/types.ts';
 import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
+import { documentPrintOptions } from './app/view/doc.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
+import { validateLogo, DISPLAY_SIZE, MAX_BYTES as LOGO_MAX_BYTES } from './app/docs/logo.ts';
+import {
+  DEFAULT_PORT as SMTP_PORT, KEYS as DIGEST_KEYS, parseTime, readSettings as readDigestSettings,
+  sendDigest, buildWorkspace,
+} from './app/mail/digest.ts';
+import { digestFor, renderDigestDocument } from './app/view/digest.ts';
+import { sendMail } from './app/mail/smtp.ts';
+import { makeDigestScheduler, localDate } from './app/mail/scheduler.ts';
 import { componentsCss, embeddedSource, isAsset, serveAsset } from './app/assets/serve.ts';
 import { listen, openBrowser, probeExisting } from './app/launch.ts';
 import { applyUpdate, checkForUpdate, cleanupOldBinaries } from './app/update.ts';
@@ -94,6 +103,31 @@ const mirrorData = () => ({
   clients: services.repos.clients.list(),
   customers: services.repos.customers.list(),
   tickets: services.repos.tickets.list(),
+});
+
+// ---- the daily digest (0013) ----
+// One email a morning with a branded PDF per client, sent from THIS process while
+// the app is open — there is no server to host a cron, and inventing one would mean
+// a service the operator has not asked for and cannot see.
+const runDigest = (today: string, actor: string) => sendDigest({
+  repos,
+  print: printToPdf,
+  send: sendMail,
+  // Audited against every client whose work left the building. The recipient is
+  // recorded; the message body is not.
+  audit: (clientId, recipient, count) => {
+    repos.audit.append({
+      entity: 'client', entityId: clientId, action: 'update', actor,
+      diff: JSON.stringify({ digestSentTo: recipient, tickets: count }),
+    });
+  },
+  log: (line) => console.log(line),
+}, today);
+
+const digestScheduler = makeDigestScheduler({
+  settings: repos.settings,
+  send: (today) => runDigest(today, 'scheduler'),
+  log: (line) => console.log(line),
 });
 
 // ---- GRAIN door ----
@@ -382,17 +416,68 @@ const documentsSection = (entity: AuditEntity, id: string): string =>
     : '') +
   `</div></form>`;
 
+/**
+ * The ticket document, with the files filed against it.
+ *
+ * 0013 put a Documents section on the ticket — it was always odd that the artefact
+ * which gets sent on never carried the files it is about. The renderer stays pure,
+ * so the fetch happens here.
+ */
+const ticketDocument = (t: Ticket, customer: Customer | null, client: Client | null): string =>
+  renderTicketDocument(t, customer, client, services.documentsFor('ticket', t.id));
+
 /** In the drawer only: a way back out to the full, addressable page. */
 const fullPageLink = (href: string, inDrawer: boolean): string =>
   inDrawer ? `<p class="panel-meta"><a href="${href}">Open full page ↗</a></p>` : '';
 
-function clientPanel(c: Client, inDrawer = false): string {
+/** What the logo route's short outcomes mean. Anything else is already a sentence. */
+const LOGO_NOTICE: Record<string, string> = {
+  set: 'Logo updated. It appears on every document this client generates from now on.',
+  removed: 'Logo removed. Documents fall back to the wordmark.',
+  none: 'No file was chosen.',
+};
+
+/**
+ * The logo: the one branding value that is BYTES, and therefore the one that
+ * cannot come through the JSON `/intent` door. A plain multipart form, following
+ * 0006's precedent for uploads — and the reason `clientSchema` has six fields and
+ * not seven.
+ *
+ * Removing has to be possible too. "Upload a white square" is not a way to clear
+ * a value.
+ */
+function logoSection(c: Client): string {
+  const has = Boolean(c.branding.logoDataUrl);
+  const well = has
+    ? `<div class="logo-well"><img src="${esc(c.branding.logoDataUrl)}" alt="${esc(c.name)} logo"></div>`
+    : `<div class="logo-well is-empty">No logo set</div>`;
+  return (
+    `<h3 class="section-title">Logo</h3>` + well +
+    `<form class="attach" method="post" action="/clients/${esc(c.id)}/logo" enctype="multipart/form-data">` +
+    `<div class="form-row"><input type="file" name="logo" accept="image/png,image/jpeg" required></div>` +
+    `<div class="form-controls">` +
+    `<button type="submit" class="btn">${has ? 'Replace logo' : 'Upload logo'}</button>` +
+    // `formnovalidate`, or the empty (and `required`) file input blocks the one
+    // submit that is not supposed to carry a file.
+    (has ? `<button type="submit" class="btn" data-variant="soft" name="remove" value="1" formnovalidate>Remove</button>` : '') +
+    `</div></form>` +
+    `<p class="muted">PNG or JPEG, up to ${LOGO_MAX_BYTES / 1024} KB. Shown at ` +
+    `${DISPLAY_SIZE.width} × ${DISPLAY_SIZE.height} on generated documents — anything larger is stored but never seen.</p>` +
+    (has ? ''
+      : `<p class="muted">Without one, documents use the client's name as a wordmark in the primary ` +
+        `colour. That is a real design, not a placeholder — a client may prefer it.</p>`)
+  );
+}
+
+function clientPanel(c: Client, inDrawer = false, notice = ''): string {
   const customers = services.repos.customers.list(c.id);
   return (
     `<div data-panel-title="${esc(c.name)}">` +
+    notice +
     panelMeta([`<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`,
       `${customers.length} customer${customers.length === 1 ? '' : 's'}`]) +
     `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
+    logoSection(c) +
     `<h3 class="section-title">Customers</h3>` +
     chips(customers.map((x) => ({ href: `/customers/${x.id}`, label: personsLabel(x) })), 'No customers yet.') +
     documentsSection('client', c.id) +
@@ -680,14 +765,19 @@ const server = listen((port) => Bun.serve({
         const session = typeof o.session === 'string' && o.session ? o.session : 'anon';
 
         // STEWARD domain vocabulary — ops pushed over SSE. Every verb but `sheet.push`
-        // resolves synchronously; awaiting the others costs nothing.
+        // and `digest.send` resolves synchronously; awaiting the others costs nothing.
         if (typeof o.action === 'string' && isStewardAction(o.action)) {
           const result = await dispatchSteward(services, {
             action: o.action,
             payload: o.payload && typeof o.payload === 'object' ? (o.payload as Record<string, unknown>) : {},
             actor: 'human', // stamped at the door
             session,
-          }, { pushSheet: () => sheetsMirror.push(mirrorData()) });
+          }, {
+            pushSheet: () => sheetsMirror.push(mirrorData()),
+            // The same actor the door stamps on the intent — a send through this
+            // door is somebody at the keyboard, not the clock.
+            sendDigest: () => runDigest(localDate(new Date()), 'human'),
+          });
           if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
           for (const op of result.ops) stream.push(session, OP_EVENT, op);
           return new Response(null, { status: 202 });
@@ -761,6 +851,67 @@ const server = listen((port) => Bun.serve({
       },
     },
 
+    // --- the daily digest (0013) ---
+    '/digest/settings': {
+      POST: async (req: Request) => {
+        const form = await req.formData();
+        const value = (k: string) => String(form.get(k) ?? '').trim();
+
+        const time = parseTime(value('time'));
+        if (!time) return backTo('/settings?digest=bad-time');
+        repos.settings.set(DIGEST_KEYS.time, time);
+        repos.settings.set(DIGEST_KEYS.enabled, form.get('enabled') ? '1' : '0');
+        repos.settings.set(DIGEST_KEYS.to, value('to'));
+        repos.settings.set(DIGEST_KEYS.host, value('host'));
+        repos.settings.set(DIGEST_KEYS.port, String(Number(value('port')) || SMTP_PORT));
+        repos.settings.set(DIGEST_KEYS.user, value('user'));
+        repos.settings.set(DIGEST_KEYS.from, value('from'));
+
+        // A password field submitted EMPTY means "leave it alone", not "erase it" —
+        // the card never renders the stored value back, so an empty box is the
+        // normal state of an unchanged form, and treating it as a deletion would
+        // wipe the secret every time somebody changed the send time.
+        const password = value('password');
+        if (password) repos.settings.set(DIGEST_KEYS.password, password);
+        if (form.get('forgetPassword')) repos.settings.remove(DIGEST_KEYS.password);
+
+        return backTo('/settings?digest=saved');
+      },
+    },
+    '/digest/send': {
+      POST: async () => {
+        const out = await runDigest(localDate(new Date()), 'human');
+        return Response.json(out, { status: out.ok ? 200 : 400 });
+      },
+    },
+    // The report a client's PDF would be, without sending anything. The one way to
+    // look at the digest layout while the mailbox is still somebody else's problem.
+    '/digest/preview/:id': {
+      GET: async (req: Request) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const client = services.repos.clients.get(id);
+        if (!client) return new Response('Not found', { status: 404 });
+        const today = localDate(new Date());
+        const { digests, ticketTotal } = buildWorkspace(repos, today);
+        const d = digests.find((x) => x.client.id === id)
+          ?? digestFor(client, [], today); // nothing pending: render the empty case
+        const html = renderDigestDocument(d, today, ticketTotal);
+        if (new URL(req.url).searchParams.get('html') !== null) {
+          return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+        }
+        try {
+          const bytes = await printToPdf(html, documentPrintOptions(client));
+          return new Response(bytes as unknown as BodyInit, {
+            headers: { 'Content-Type': 'application/pdf',
+              'Content-Disposition': `inline; filename="digest-${today}.pdf"` },
+          });
+        } catch (e) {
+          console.error('[/digest/preview]', e);
+          return new Response('PDF generation failed', { status: 502 });
+        }
+      },
+    },
+
     // --- STEWARD demo controls ---
     '/demo/status': {
       GET: () => Response.json({
@@ -790,15 +941,50 @@ const server = listen((port) => Bun.serve({
       },
     },
     '/clients/:id': {
-      GET: (req) => {
+      GET: (req: Request) => {
         const id = (req as unknown as { params: { id: string } }).params.id;
         const c = services.repos.clients.get(id);
         if (!c) return new Response('Not found', { status: 404 });
+        // A rejected logo redirects back here with its reason. Multipart posts have
+        // no live channel to answer on — the page IS the answer.
+        const said = new URL(req.url).searchParams.get('logo') ?? '';
+        const notice = said
+          ? `<p class="form-status" data-ok="${said === 'set' || said === 'removed'}">${esc(LOGO_NOTICE[said] ?? said)}</p>`
+          : '';
         return layout(c.name,
           `<a class="back-link" href="/clients">← Clients</a>` +
           `<div class="page-head"><h1>${esc(c.name)}</h1></div>` +
-          `<div class="panel"><div class="panel__body">${clientPanel(c)}</div></div>`,
+          `<div class="panel"><div class="panel__body">${clientPanel(c, false, notice)}</div></div>`,
           { path: '/clients', crumbs: `<a href="/clients">Clients</a> / <strong>${esc(c.name)}</strong>` });
+      },
+    },
+    '/clients/:id/logo': {
+      POST: async (req: Request) => {
+        const id = (req as unknown as { params: { id: string } }).params.id;
+        const c = services.repos.clients.get(id);
+        if (!c) return new Response('Not found', { status: 404 });
+        const back = (why: string) => backTo(`/clients/${id}?logo=${why}`);
+
+        const form = await req.formData();
+        const brandingWith = (logoDataUrl: string | null) => ({ ...c.branding, logoDataUrl });
+
+        if (form.get('remove')) {
+          services.updateClient(id, { branding: brandingWith(null) }, 'human', { logo: null });
+          return back('removed');
+        }
+        const file = form.get('logo');
+        if (!(file instanceof File) || !file.size) return back('none');
+
+        // Validated by what the bytes ARE, server-side. The browser's declared type
+        // is only ever a restatement of the file extension.
+        const result = validateLogo(new Uint8Array(await file.arrayBuffer()));
+        if (!result.ok) return backTo(`/clients/${id}?logo=${encodeURIComponent(result.error)}`);
+
+        // Audited like any other change — but the row records that a logo was set,
+        // not half a megabyte of base64 (see services.updateClient).
+        services.updateClient(id, { branding: brandingWith(result.dataUrl) }, 'human',
+          { logo: result.mimeType, bytes: result.bytes });
+        return back('set');
       },
     },
     '/clients/:id/panel': {
@@ -907,7 +1093,7 @@ const server = listen((port) => Bun.serve({
         const customer = services.repos.customers.get(t.customerId);
         const client = customer ? services.repos.clients.get(customer.clientId) : null;
         try {
-          const bytes = await printToPdf(renderTicketDocument(t, customer, client));
+          const bytes = await printToPdf(ticketDocument(t, customer, client), documentPrintOptions(client));
           // Cast: TS's typed-array generic doesn't unify with the DOM BodyInit union.
           return new Response(bytes as unknown as BodyInit, {
             headers: {
@@ -929,7 +1115,7 @@ const server = listen((port) => Bun.serve({
         const customer = services.repos.customers.get(t.customerId);
         const client = customer ? services.repos.clients.get(customer.clientId) : null;
         try {
-          const bytes = await printToPdf(renderTicketDocument(t, customer, client));
+          const bytes = await printToPdf(ticketDocument(t, customer, client), documentPrintOptions(client));
           await services.attachDocument(
             { entity: 'ticket', entityId: t.id },
             { name: `${t.ticketId}.pdf`, mimeType: 'application/pdf', bytes },
@@ -1237,6 +1423,105 @@ const server = listen((port) => Bun.serve({
           return `<section class="panel"><div class="panel__head"><h2>Google Sheets</h2></div>` +
             `<div class="panel__body">${body}</div></section>`;
         })() +
+        // --- The daily digest: a card that states what is TRUE ---
+        // Every line here is a fact about this machine's configuration, not a promise.
+        // The secret is held, never rendered back: the card says whether a password
+        // exists, and that is all it is ever allowed to say about it.
+        (() => {
+          const d = readDigestSettings(repos.settings);
+          const said = new URL(req.url).searchParams.get('digest');
+          const notes: Record<string, string> = {
+            saved: 'Saved.',
+            'bad-time': 'That is not a time of day. Use HH:MM, like 08:00.',
+          };
+          const noticed = said
+            ? `<p class="form-status" data-ok="${said === 'saved'}">${esc(notes[said] ?? said)}</p>`
+            : '';
+
+          const today = localDate(new Date());
+          const { digests } = buildWorkspace(repos, today);
+          const pending = digests.reduce((sum, x) => sum + x.total, 0);
+          const preview = digests.length
+            ? `<p class="muted">Right now that would be ${pending} pending ` +
+              `${pending === 1 ? 'ticket' : 'tickets'} across ${digests.length} ` +
+              `${digests.length === 1 ? 'client' : 'clients'}: ` +
+              digests.map((x) =>
+                `<a href="/digest/preview/${esc(x.client.id)}" target="_blank" rel="noopener">` +
+                `${esc(x.client.name)} (${x.total}) ↗</a>`).join(', ') + `.</p>`
+            : `<p class="muted">Nothing is pending right now, so today's digest would be one ` +
+              `sentence and no attachments. It still sends — a silent morning is ` +
+              `indistinguishable from a scheduler that died in the night.</p>`;
+
+          // What is missing, named. "It does not work" is not a diagnosis.
+          const gaps = [
+            d.host ? '' : 'an SMTP host',
+            d.user ? '' : 'a username',
+            d.hasPassword ? '' : 'a password',
+            d.to ? '' : 'a recipient',
+          ].filter(Boolean);
+          const ready = gaps.length
+            ? `<p class="muted">Not sendable yet — still needs ${gaps.join(', ')}.</p>`
+            : d.enabled
+              ? `<p>Scheduled for <strong>${esc(d.time)}</strong> every day, to ` +
+                `<strong>${esc(d.to)}</strong>, while STEWARD is open.</p>`
+              : `<p class="muted">Configured, but the schedule is off. It can still be sent by hand.</p>`;
+
+          const row = (name: string, label: string, control: string, help = '') =>
+            `<div class="form-row"><label for="f_d_${esc(name)}">${esc(label)}</label>` +
+            control + (help ? `<span class="sub">${esc(help)}</span>` : '') + `</div>`;
+          const input = (name: string, type: string, value: string, extra = '') =>
+            `<input id="f_d_${esc(name)}" name="${esc(name)}" type="${type}" value="${esc(value)}" ${extra}>`;
+
+          return `<section class="panel"><div class="panel__head"><h2>Daily digest</h2></div>` +
+            `<div class="panel__body">` + noticed +
+            `<p>One email each morning listing every ticket that is not <strong>Completed</strong>, ` +
+            `carrying a branded PDF per client and links to the Drive files filed against each ticket.</p>` +
+            ready + preview +
+            (d.lastSentOn ? `<p class="muted">Last sent on <span class="mono">${esc(d.lastSentOn)}</span>.</p>` : '') +
+            (d.lastResult ? `<p class="muted">Last result: ${esc(d.lastResult)}</p>` : '') +
+            // `fb` for the layout only. A form carrying a real `action` is left to the
+            // browser by steward-live.js, so this posts to the URL rather than the door.
+            `<form class="fb" method="post" action="/digest/settings">` +
+            `<div class="form-row"><label for="f_d_enabled">Send daily</label>` +
+            `<input id="f_d_enabled" name="enabled" type="checkbox" value="1"${d.enabled ? ' checked' : ''}></div>` +
+            row('time', 'Time', input('time', 'time', d.time),
+              'Local to this machine. A day missed while the app was closed stays missed.') +
+            row('to', 'To', input('to', 'email', d.to)) +
+            row('host', 'SMTP host', input('host', 'text', d.host, 'placeholder="smtp.gmail.com"')) +
+            row('port', 'Port', input('port', 'number', String(d.port)),
+              'Implicit TLS only. 587 with STARTTLS is not supported.') +
+            row('user', 'Username', input('user', 'text', d.user)) +
+            // The one control in STEWARD that must never be seeded from storage.
+            row('password', 'Password', `<input id="f_d_password" name="password" type="password" value="" ` +
+              `autocomplete="new-password" placeholder="${d.hasPassword ? 'stored — leave blank to keep' : 'app password'}">`,
+              d.hasPassword
+                ? 'A password is stored. It is never shown again, never audited and never put in a URL.'
+                : 'For Gmail this is an app password, not the account password.') +
+            row('from', 'From', input('from', 'email', d.from), 'Blank means the username above.') +
+            `<div class="form-controls"><button type="submit" class="btn" data-variant="soft">Save</button>` +
+            (d.hasPassword
+              ? `<button type="submit" class="btn" name="forgetPassword" value="1">Forget password</button>`
+              : '') +
+            `</div></form>` +
+            `<div class="form-controls"><button type="button" class="btn" id="digest-send"` +
+            `${gaps.length ? ' disabled' : ''}>Send now</button></div>` +
+            `<p class="form-status" id="digest-status" hidden></p>` +
+            `<script type="module">
+              const status = document.getElementById('digest-status');
+              const button = document.getElementById('digest-send');
+              const say = (text, ok) => { status.hidden = false; status.textContent = text; status.dataset.ok = String(!!ok); };
+              button.addEventListener('click', async () => {
+                button.disabled = true;
+                say('Sending…');
+                const r = await fetch('/digest/send', { method: 'POST' })
+                  .then((x) => x.json()).catch(() => ({ ok: false, error: 'The send never reached the server.' }));
+                button.disabled = false;
+                if (!r.ok) { say(r.error || 'The send failed.'); return; }
+                say('Sent — ' + r.tickets + ' pending, ' + r.attachments + ' report(s) attached.', true);
+              });
+            </script>` +
+            `</div></section>`;
+        })() +
         `<section class="panel"><div class="panel__head"><h2>Appearance</h2></div><div class="panel__body">` +
         `<p class="muted">Theme is a GRAIN token re-skin, saved to this browser.</p>` +
         // Each row is a named GROUP of toggles, not a <label> wrapping nothing.
@@ -1353,7 +1638,13 @@ if (config.packaged) {
   void cleanupOldBinaries(exeDir, readdirSync(exeDir)).catch(() => {});
 }
 
+// The digest clock (0013). Started here rather than at the composition root so it can
+// never fire during boot: the first tick is a minute after the server is answering.
+// It reads its own configuration on every tick, so a schedule changed in Settings takes
+// effect without a restart, and an unconfigured install simply never sends.
+const stopDigest = digestScheduler.start();
+
 // Release the headless-Chrome singleton (0004) on shutdown.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => { void closeBrowser().finally(() => process.exit(0)); });
+  process.on(sig, () => { stopDigest(); void closeBrowser().finally(() => process.exit(0)); });
 }

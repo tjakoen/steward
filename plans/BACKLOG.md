@@ -117,7 +117,7 @@ All four are closed. The answers below are decisions, not proposals.
 ## Verify pass — RUN 2026-08-03, both items pass, one defect found
 
 Run against `data/steward.db` (demo data) with `PORT=3211 bun server.ts`, Google connected as
-`tjakoen.s@gmail.com`. Evidence, not inference — every claim below was executed.
+the operator's own account. Evidence, not inference — every claim below was executed.
 
 **Item 2 — ticket PDFs generate and carry branding: PASS.**
 `GET /tickets/:id/pdf` returns `200 application/pdf` for every ticket tried. The rendered page

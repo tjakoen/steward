@@ -35,6 +35,7 @@ function meta(ticket: Ticket, who: string): string {
     cell('Customer', esc(who)) +
     cell('Status', pill) +
     cell('Initiated', esc(formatDate(ticket.dateInitiated))) +
+    cell('Updated', esc(formatDate(ticket.dateLastUpdated))) +
     `</dl>`
   );
 }
@@ -114,7 +115,7 @@ export function documentsSection(docs: DocumentRef[]): string {
 
 /** Layout only this document needs; the rest comes from `documentCss`. */
 const TICKET_CSS = `
-.meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 0 0 24px;
+.meta { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; margin: 0 0 24px;
   border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .meta div { padding: 9px 14px 9px 0; }
 .meta dt { margin: 0 0 2px; font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }

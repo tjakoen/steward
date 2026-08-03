@@ -129,6 +129,17 @@ test('the meta line is a labelled grid, and the status is a pill', () => {
   expect(html).toContain('1 Jul 2026'); // dates are read, not ISO
 });
 
+// The approved mockup's grid had four cells and dropped this one; the human asked
+// for it back on 2026-08-04, so the grid is five wide.
+test('the meta grid carries Updated as a fifth cell', () => {
+  const html = renderTicketDocument(
+    makeTicket({ dateLastUpdated: '2026-07-20' }), customer, makeClient(),
+  );
+  expect(html).toContain('<dt>Updated</dt>');
+  expect(html).toContain('20 Jul 2026');
+  expect(html).toContain('repeat(5, 1fr)');
+});
+
 test('Waiting gets the pill AND the callout, aged in days', () => {
   const html = renderTicketDocument(
     makeTicket({ status: 'Waiting', waitingOn: 'Client', waitingSince: '2026-07-01' }),

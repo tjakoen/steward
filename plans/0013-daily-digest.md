@@ -360,9 +360,11 @@ due-check returns `unconfigured`.
 - **The email body's own branding.** Plain text, deliberately: an HTML mail that has to survive
   a dozen clients is its own project, and the branded artefact is the attachment.
 - STARTTLS on 587, per the transport section above.
-- **`dateLastUpdated` is no longer printed on the ticket document, and that is a consequence
-  of the approved mockup rather than a decision anyone made.** The old meta run-on carried it;
-  the approved grid has four cells (Ticket, Customer, Status, Initiated) and it was the fifth.
-  It survives in the digest's Updated column. Restoring it is one cell in `meta()`
-  (`app/view/pdf.ts`) and a `repeat(5, 1fr)`, but that changes a layout the human signed off,
-  so it waits for them to ask. **Flagged to the human 2026-08-04; unanswered.**
+- ~~**`dateLastUpdated` is no longer printed on the ticket document.**~~ **ANSWERED
+  2026-08-04: put it back.** The approved mockup's grid had four cells (Ticket, Customer,
+  Status, Initiated) and dropped it; the human asked for the fifth. Done — one `cell('Updated', …)`
+  in `meta()` and `repeat(5, 1fr)` in `TICKET_CSS` (`app/view/pdf.ts`), with a test that asserts
+  both. Rendered and looked at, because a fifth column in a grid sized for four is exactly the
+  kind of thing `tsc` cannot see: five cells fit at A4, the Waiting callout is unmoved, a
+  two-line customer name wraps inside its own cell without pushing the row, and a short ticket
+  is still one page with `Page 1 of 1` in the margin.

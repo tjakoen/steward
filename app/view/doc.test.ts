@@ -9,7 +9,7 @@ const client = (over: Partial<Client['branding']> = {}): Client => ({
   id: 'cli_1', name: 'Acme Advisory', code: 'acme',
   branding: { logoDataUrl: null, primaryColor: '#1f4e5f', secondaryColor: '#c8a15a',
     companyInfo: '', pdfFooter: 'Acme · confidential', ...over },
-  active: true, createdAt: '', updatedAt: '',
+  archivedAt: null, createdAt: '', updatedAt: '',
 });
 
 test('both ISO shapes format the same way; garbage passes through', () => {

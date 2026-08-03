@@ -33,14 +33,48 @@ export function setDb(database: Database): void {
   migrate(database);
 }
 
+/**
+ * Steps a database created BEFORE a schema change has to take to catch up.
+ *
+ * Until 0012 the whole schema was one `CREATE TABLE IF NOT EXISTS` block, which is
+ * idempotent and was enough for eleven plans because every table was born complete. It
+ * cannot add a column to a database that already holds rows, and by then the operator's
+ * did — so this is the ladder, kept as small as the job needs.
+ *
+ * The index is the version: a database at `user_version` N has taken steps 0..N-1.
+ * A step runs in a transaction, so a failure half way leaves the version behind rather
+ * than a schema nobody can describe.
+ *
+ * `ADD COLUMN` cannot be `NOT NULL` without a default, which is part of why `archivedAt`
+ * is a nullable timestamp rather than an `archived INTEGER NOT NULL DEFAULT 0`. Null means
+ * live; a timestamp means archived and says when on its face.
+ */
+const STEPS: ((d: Database) => void)[] = [
+  // 1 — 0012: archive instead of delete.
+  (d) => {
+    d.exec('ALTER TABLE clients ADD COLUMN archivedAt TEXT');
+    d.exec('ALTER TABLE customers ADD COLUMN archivedAt TEXT');
+  },
+];
+
 function migrate(d: Database): void {
+  // Asked BEFORE the create block, because afterwards every database looks alike. A fresh
+  // one is born with every column the steps would add, so running them would fail on
+  // `duplicate column name` — it is stamped at the latest version instead.
+  const fresh = !d
+    .query<{ name: string }, []>(`SELECT name FROM sqlite_master WHERE type='table' AND name='clients'`)
+    .get();
+
   d.exec(`
     CREATE TABLE IF NOT EXISTS clients (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       code TEXT NOT NULL UNIQUE,
       branding TEXT NOT NULL,          -- JSON Branding
+      -- Vestigial (0012). Never read, never written, kept only because dropping a column
+      -- is a destructive migration in exchange for tidiness. archivedAt is the flag.
       active INTEGER NOT NULL DEFAULT 1,
+      archivedAt TEXT,                 -- null = live; ISO 8601 = archived, and when
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -54,6 +88,7 @@ function migrate(d: Database): void {
       phone TEXT NOT NULL DEFAULT '',
       externalId TEXT NOT NULL DEFAULT '',
       notes TEXT NOT NULL DEFAULT '',
+      archivedAt TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
@@ -121,6 +156,17 @@ function migrate(d: Database): void {
       value TEXT NOT NULL
     );
   `);
+
+  if (fresh) {
+    d.exec(`PRAGMA user_version = ${STEPS.length}`);
+    return;
+  }
+
+  // `PRAGMA user_version = ?` does not take a bound parameter, so the number is
+  // interpolated. It is `STEPS.length` — ours, not anyone's input.
+  const at = d.query<{ user_version: number }, []>('PRAGMA user_version').get()?.user_version ?? 0;
+  for (let i = at; i < STEPS.length; i++) d.transaction(() => STEPS[i](d))();
+  if (at < STEPS.length) d.exec(`PRAGMA user_version = ${STEPS.length}`);
 }
 
 /** Next ticket sequence number for a customer (atomic). */

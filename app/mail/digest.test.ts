@@ -20,7 +20,7 @@ function seed(spec: { client: string; status: TicketStatus }[]) {
   const s = makeServices(repos);
   const clients = new Map<string, string>();
   for (const name of new Set(spec.map((x) => x.client))) {
-    const c = s.createClient({ name, code: name.toLowerCase(), active: true, branding }, 'human');
+    const c = s.createClient({ name, code: name.toLowerCase(), branding }, 'human');
     clients.set(name, c.id);
     const cust = s.createCustomer({ clientId: c.id, code: '', persons: [{ given: 'A', family: name }],
       email: '', phone: '', externalId: '', notes: '' }, 'human');

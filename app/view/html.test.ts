@@ -15,7 +15,7 @@ const auditEntry = (over: Partial<AuditEntry> = {}): AuditEntry => ({
 const client: Client = {
   id: 'cli_1', name: 'Acme', code: 'acme',
   branding: { logoDataUrl: null, primaryColor: '#111', secondaryColor: '#222', companyInfo: '', pdfFooter: '' },
-  active: true, createdAt: '', updatedAt: '',
+  archivedAt: null, createdAt: '', updatedAt: '',
 };
 
 test('esc neutralizes HTML', () => {
@@ -50,7 +50,8 @@ test('customerRow escapes and exposes a per-row surface', () => {
   const c: Customer = {
     id: 'cus_1', clientId: 'cli_1', code: 'DOEX',
     persons: [{ given: 'Jane', family: 'Doe' }],
-    email: 'j@example.com', phone: '', externalId: '', notes: '', createdAt: '', updatedAt: '',
+    email: 'j@example.com', phone: '', externalId: '', notes: '', archivedAt: null,
+    createdAt: '', updatedAt: '',
   };
   expect(customerRow(c)).toContain('data-surface="customer:cus_1"');
   expect(customerRow(c)).toContain('Doe, Jane');

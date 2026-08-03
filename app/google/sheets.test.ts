@@ -148,7 +148,7 @@ test('the grid is grown before the write, because values.update refuses a range 
   const mirror = makeSheetsMirror(settings, authWith('tok'), 'STEWARD', impl, 'client');
 
   const clients = Array.from({ length: 2_000 }, (_, i) => ({
-    id: `c${i}`, name: `n${i}`, code: `C${i}`, active: true,
+    id: `c${i}`, name: `n${i}`, code: `C${i}`, archivedAt: null,
     branding: { logoDataUrl: null, primaryColor: '', secondaryColor: '', companyInfo: '', pdfFooter: '' },
     createdAt: '', updatedAt: '',
   }));

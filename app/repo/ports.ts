@@ -6,35 +6,44 @@ import type {
   Client,
   Customer,
   DocumentRef,
+  ListScope,
   Ticket,
 } from '../domain/types.ts';
 
-export type NewClient = Omit<Client, 'id' | 'createdAt' | 'updatedAt'>;
-export type NewCustomer = Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>;
+// `archivedAt` is deliberately not creatable and not patchable: nothing is born archived,
+// and archiving is a verb with its own audit row rather than a field an edit form can set.
+export type NewClient = Omit<Client, 'id' | 'archivedAt' | 'createdAt' | 'updatedAt'>;
+export type NewCustomer = Omit<Customer, 'id' | 'archivedAt' | 'createdAt' | 'updatedAt'>;
 export type NewTicket = Omit<
   Ticket,
   'id' | 'ticketId' | 'createdAt' | 'updatedAt'
 >;
 
 export interface ClientRepository {
-  list(): Client[];
+  /** Live records only unless asked otherwise (0012). */
+  list(scope?: ListScope): Client[];
+  /** By id, whatever its scope — an archived record stays addressable. */
   get(id: string): Client | null;
   create(input: NewClient): Client;
   update(id: string, patch: Partial<NewClient>): Client;
+  /** `at` is an ISO timestamp to archive, or null to restore. */
+  setArchived(id: string, at: string | null): Client;
   remove(id: string): void;
 }
 
 export interface CustomerRepository {
-  list(clientId?: string): Customer[];
+  list(clientId?: string, scope?: ListScope): Customer[];
   get(id: string): Customer | null;
-  search(query: string): Customer[];
+  search(query: string, scope?: ListScope): Customer[];
   create(input: NewCustomer): Customer;
   update(id: string, patch: Partial<NewCustomer>): Customer;
+  setArchived(id: string, at: string | null): Customer;
   remove(id: string): void;
 }
 
 export interface TicketRepository {
-  list(customerId?: string): Ticket[];
+  /** Tickets carry no flag of their own; they are hidden by their customer's lineage. */
+  list(customerId?: string, scope?: ListScope): Ticket[];
   get(id: string): Ticket | null;
   byStatus(): Record<string, Ticket[]>;
   /** ticketId is assigned by the repo (per-customer sequence). */

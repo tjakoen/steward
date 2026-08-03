@@ -10,14 +10,14 @@ function makeClient(over: Partial<Client['branding']> = {}): Client {
       logoDataUrl: null, primaryColor: '#1f4e5f', secondaryColor: '#c8a15a',
       companyInfo: '12 King St', pdfFooter: 'Acme · confidential', ...over,
     },
-    active: true, createdAt: '', updatedAt: '',
+    archivedAt: null, createdAt: '', updatedAt: '',
   };
 }
 
 const customer: Customer = {
   id: 'cus_1', clientId: 'cli_1', code: 'DOEX',
   persons: [{ given: 'Jane', family: 'Doe' }],
-  email: '', phone: '', externalId: '', notes: '', createdAt: '', updatedAt: '',
+  email: '', phone: '', externalId: '', notes: '', archivedAt: null, createdAt: '', updatedAt: '',
 };
 
 function makeTicket(over: Partial<Ticket> = {}): Ticket {

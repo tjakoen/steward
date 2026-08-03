@@ -7,7 +7,9 @@
 
 import type { DocumentStore, StoredFile } from '../docs/store.ts';
 import type { GoogleAuth } from './oauth.ts';
-import { DRIVE_FILES_API as FILES_API, ensureFolder, type Fetcher } from './folder.ts';
+import {
+  ARCHIVED_FOLDER, DRIVE_FILES_API as FILES_API, ensureFolder, moveToFolder, type Fetcher,
+} from './folder.ts';
 
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
 
@@ -21,6 +23,7 @@ interface DriveFile {
 export class GoogleDriveStore implements DocumentStore {
   readonly kind = 'drive' as const;
   private folderId: string | null = null;
+  private archivedId: string | null = null;
 
   constructor(
     private auth: GoogleAuth,
@@ -39,6 +42,34 @@ export class GoogleDriveStore implements DocumentStore {
     if (this.folderId) return this.folderId;
     this.folderId = await ensureFolder(await this.token(), this.folderName, this.fetchImpl);
     return this.folderId;
+  }
+
+  /** The archived subfolder, created on first use. Cached like its parent. */
+  private async archivedFolder(): Promise<string> {
+    if (this.archivedId) return this.archivedId;
+    this.archivedId = await ensureFolder(
+      await this.token(), ARCHIVED_FOLDER, this.fetchImpl, await this.folder(),
+    );
+    return this.archivedId;
+  }
+
+  /**
+   * Move a record's files into STEWARD/Archived, or back out of it (0012).
+   *
+   * The caller has already stamped the database, so this is a courtesy: it reports how many
+   * files moved and never undoes the archive. Only files this app stored in Drive can move —
+   * a LINKED file keeps `storageId: ''` on purpose (0006), because it is the operator's own
+   * and STEWARD moving it around their Drive would be a liberty.
+   */
+  async moveArchived(storageIds: string[], archived: boolean): Promise<number> {
+    const ids = storageIds.filter(Boolean);
+    if (!ids.length) return 0;
+    const token = await this.token();
+    const home = await this.folder();
+    const away = await this.archivedFolder();
+    return archived
+      ? moveToFolder(token, ids, home, away, this.fetchImpl)
+      : moveToFolder(token, ids, away, home, this.fetchImpl);
   }
 
   async put(name: string, bytes: Uint8Array, mimeType: string): Promise<StoredFile> {

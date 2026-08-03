@@ -30,10 +30,14 @@ export type TabTitle = (typeof TAB_TITLES)[number];
 export const SPREADSHEET_TITLE = 'STEWARD mirror (read-only)';
 
 const HEADERS: Record<TabTitle, string[]> = {
-  Clients: ['id', 'code', 'name', 'active', 'created', 'updated'],
+  // `archived` replaced `active` in 0012: the date, or blank. Archived rows STAY in the
+  // sheet — a row that vanished would be indistinguishable from one a view filtered out,
+  // and to a reader a disappearing row is data loss. It is a derived column and a pull
+  // must never treat it as a field: archiving is a verb with an audit row, not a cell.
+  Clients: ['id', 'code', 'name', 'archived', 'created', 'updated'],
   Customers: [
     'id', 'client code', 'customer code', 'persons', 'email', 'phone',
-    'external id', 'notes', 'created', 'updated',
+    'external id', 'notes', 'archived', 'created', 'updated',
   ],
   Tickets: [
     'id', 'ticket id', 'customer', 'client code', 'title', 'status', 'initiated',
@@ -76,12 +80,12 @@ export function mirrorTabs(data: MirrorData, pushedAt: string): MirrorTab[] {
 
   return [
     tab('Clients', data.clients.map((c) => [
-      c.id, c.code, c.name, c.active ? 'yes' : 'no', c.createdAt, c.updatedAt,
+      c.id, c.code, c.name, c.archivedAt ?? '', c.createdAt, c.updatedAt,
     ])),
 
     tab('Customers', data.customers.map((c) => [
       c.id, clientCode.get(c.clientId) ?? '', c.code, personsLabel(c),
-      c.email, c.phone, c.externalId, c.notes, c.createdAt, c.updatedAt,
+      c.email, c.phone, c.externalId, c.notes, c.archivedAt ?? '', c.createdAt, c.updatedAt,
     ])),
 
     tab('Tickets', data.tickets.map((t) => {

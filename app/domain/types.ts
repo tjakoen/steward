@@ -18,13 +18,20 @@ export interface Branding {
   pdfFooter: string;
 }
 
-/** A branded organization the platform serves. */
+/**
+ * A branded organization the platform serves.
+ *
+ * `archivedAt` replaced an `active: boolean` in 0012. The boolean was written at create,
+ * stored and mirrored — and never read to filter anything, and never settable. A timestamp
+ * answers *when*, which is the first thing anyone asks of an archived record; who did it is
+ * already on the audit row.
+ */
 export interface Client {
   id: string;
   name: string;
   code: string; // short slug, unique
   branding: Branding;
-  active: boolean;
+  archivedAt: string | null; // null = live
   createdAt: string; // ISO 8601
   updatedAt: string;
 }
@@ -39,9 +46,20 @@ export interface Customer {
   phone: string;
   externalId: string; // optional external system ref
   notes: string;
+  archivedAt: string | null; // null = live
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * Which slice of a list to read.
+ *
+ * A record is HIDDEN when it is archived or its parent is — archiving a client does not
+ * stamp its customers, because un-stamping on restore could not tell a child that was
+ * already archived from one that was not. So visibility is a question about the whole
+ * lineage, which is why it is answered in SQL rather than by each caller.
+ */
+export type ListScope = 'live' | 'archived' | 'all';
 
 export const TICKET_STATUSES = [
   'Not Commenced',
@@ -110,7 +128,7 @@ export interface DocumentRef {
   createdAt: string; // ISO 8601
   createdBy: string; // actor — same vocabulary as audit rows
 }
-export type AuditAction = 'create' | 'update' | 'archive' | 'delete';
+export type AuditAction = 'create' | 'update' | 'archive' | 'restore' | 'delete';
 
 /** Append-only history of every mutation. */
 export interface AuditEntry {

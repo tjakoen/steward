@@ -11,13 +11,13 @@ const client = (over: Partial<Client> = {}): Client => ({
   id: 'cli_1', name: 'Acme Advisory', code: 'acme',
   branding: { logoDataUrl: null, primaryColor: '#1f4e5f', secondaryColor: '#c8a15a',
     companyInfo: 'Acme Advisory Pty Ltd', pdfFooter: 'Acme · confidential' },
-  active: true, createdAt: '', updatedAt: '', ...over,
+  archivedAt: null, createdAt: '', updatedAt: '', ...over,
 });
 
 const customer: Customer = {
   id: 'cus_1', clientId: 'cli_1', code: 'SMIT',
   persons: [{ given: 'John', family: 'Smith' }],
-  email: '', phone: '', externalId: '', notes: '', createdAt: '', updatedAt: '',
+  email: '', phone: '', externalId: '', notes: '', archivedAt: null, createdAt: '', updatedAt: '',
 };
 
 function pending(over: Partial<Ticket> = {}, documents: DocumentRef[] = []): PendingTicket {

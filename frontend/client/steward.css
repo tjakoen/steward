@@ -425,3 +425,31 @@ form.inline { display: inline; }
 /* The composer is dead while a reply streams, and now says so — the styling was
    here before anything ever set the disabled property. */
 .chat-composer textarea:disabled, .chat-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* An archived record's badge is a FILLED inversion, not an outline. 0008 learnt this the
+   hard way: in dark, --color-accent-soft equals --color-surface and --color-accent equals
+   the text colour, so an outlined state disappears exactly where it matters most. Worn
+   beside .badge, per the house rule about never restyling a GRAIN class in place. */
+.badge-archived {
+  border-color: var(--color-accent, #1C1B17);
+  background: var(--color-accent, #1C1B17);
+  color: var(--color-accent-contrast, #fff);
+}
+
+/* --- archive and restore (0012) -------------------------------------------
+   Both blocks are the last thing in a panel on purpose: archiving is the one
+   control that takes the record out of every list, and it should not sit
+   beside the ordinary edit affordances. */
+.archive-box, .archived-note {
+  margin: var(--space-6, 1.5rem) 0 0; padding: var(--space-3, .75rem);
+  border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  border-radius: var(--radius-md, 6px);
+}
+/* An archived record announces itself, and the accent border is the one visual
+   difference between a live record's page and its archived twin. */
+.archived-note { border-left: 3px solid var(--color-accent, #1C1B17); }
+.archived-note p, .muted-note {
+  margin: 0 0 var(--space-3, .75rem);
+  font-size: var(--text-sm, .875rem); line-height: 1.5;
+  color: var(--color-muted, #6E6C64);
+}

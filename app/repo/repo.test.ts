@@ -24,7 +24,7 @@ test('ticket id: code from family name + padded sequence', () => {
 test('per-customer ticket sequence increments and survives deletes', () => {
   const s = fresh();
   const client = s.createClient(
-    { name: 'Acme', code: 'acme', active: true,
+    { name: 'Acme', code: 'acme',
       branding: { logoDataUrl: null, primaryColor: '#000', secondaryColor: '#111', companyInfo: '', pdfFooter: '' } },
     'human',
   );
@@ -44,7 +44,7 @@ test('per-customer ticket sequence increments and survives deletes', () => {
 test('every mutation appends an audit row', () => {
   const s = fresh();
   const client = s.createClient(
-    { name: 'Acme', code: 'acme', active: true,
+    { name: 'Acme', code: 'acme',
       branding: { logoDataUrl: null, primaryColor: '#000', secondaryColor: '#111', companyInfo: '', pdfFooter: '' } },
     'ai',
   );
@@ -58,7 +58,7 @@ test('every mutation appends an audit row', () => {
 test('customer search matches person name, joint households preserved', () => {
   const s = fresh();
   const client = s.createClient(
-    { name: 'Acme', code: 'acme', active: true,
+    { name: 'Acme', code: 'acme',
       branding: { logoDataUrl: null, primaryColor: '#000', secondaryColor: '#111', companyInfo: '', pdfFooter: '' } },
     'human',
   );

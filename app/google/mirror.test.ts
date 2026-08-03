@@ -5,7 +5,7 @@ import type { Client, Customer, Ticket } from '../domain/types.ts';
 const AT = '2026-08-01T10:00:00.000Z';
 
 const client = (over: Partial<Client> = {}): Client => ({
-  id: 'c1', name: 'Acme', code: 'ACME', active: true,
+  id: 'c1', name: 'Acme', code: 'ACME', archivedAt: null,
   branding: {
     // A base64 logo must never reach a cell: Sheets caps a cell at 50,000 chars.
     logoDataUrl: `data:image/png;base64,${'A'.repeat(60_000)}`,
@@ -17,6 +17,7 @@ const client = (over: Partial<Client> = {}): Client => ({
 const customer = (over: Partial<Customer> = {}): Customer => ({
   id: 'cu1', clientId: 'c1', code: 'DOEX',
   persons: [{ given: 'Jane', family: 'Doe' }],
+  archivedAt: null,
   email: 'jane@example.com', phone: '555', externalId: 'X1', notes: 'note',
   createdAt: AT, updatedAt: AT, ...over,
 });
@@ -100,4 +101,30 @@ test('counts report data rows, not the banner and header', () => {
   expect(mirrorCounts(mirrorTabs(data(), AT))).toEqual({
     Clients: 1, Customers: 1, Tickets: 1, Progress: 2,
   });
+});
+
+// 0012 — the `active` column became `archived`, and archived rows STAY in the sheet.
+// A row that vanished would be indistinguishable from one a view filtered out, and 0011
+// pulls from this sheet, where a missing row already means "neither create nor delete".
+test('an archived record keeps its row and carries the date', () => {
+  const tabs = mirrorTabs({
+    clients: [client({ archivedAt: '2026-08-04T00:00:00.000Z' })],
+    customers: [customer({ archivedAt: '2026-08-04T00:00:00.000Z' })],
+    tickets: [],
+  }, AT);
+  const named = (t: string) => tabs.find((x) => x.title === t)!;
+
+  expect(headersFor('Clients')).toContain('archived');
+  expect(headersFor('Clients')).not.toContain('active');
+  expect(headersFor('Customers')).toContain('archived');
+
+  expect(named('Clients').rows).toHaveLength(3); // banner, header, the archived row
+  expect(named('Clients').rows[2][3]).toBe('2026-08-04T00:00:00.000Z');
+  expect(named('Customers').rows[2][headersFor('Customers').indexOf('archived')])
+    .toBe('2026-08-04T00:00:00.000Z');
+});
+
+test('a live record leaves the archived cell blank rather than saying "no"', () => {
+  const tabs = mirrorTabs({ clients: [client()], customers: [], tickets: [] }, AT);
+  expect(tabs.find((t) => t.title === 'Clients')!.rows[2][3]).toBe('');
 });

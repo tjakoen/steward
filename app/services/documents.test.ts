@@ -36,7 +36,7 @@ function fresh(kind: 'local' | 'drive' = 'drive') {
     forKind: () => spy.store,
   });
   const client = services.createClient(
-    { name: 'Acme', code: 'acme', active: true,
+    { name: 'Acme', code: 'acme',
       branding: { logoDataUrl: null, primaryColor: '#000', secondaryColor: '#111', companyInfo: '', pdfFooter: '' } },
     'human',
   );

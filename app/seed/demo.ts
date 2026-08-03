@@ -28,7 +28,6 @@ export function seedDemo(repos: Repositories = sqliteRepositories()): void {
   const acme = repos.clients.create({
     name: 'Acme Advisory',
     code: 'acme',
-    active: true,
     branding: brand('#1f4e5f', '#c8a15a',
       'Acme Advisory Pty Ltd\n123 Sample Street, Exampleton\nABN 00 000 000 000',
       'Acme Advisory — sample footer. This is demo data.'),
@@ -37,7 +36,6 @@ export function seedDemo(repos: Repositories = sqliteRepositories()): void {
   const northwind = repos.clients.create({
     name: 'Northwind Planning',
     code: 'nw',
-    active: true,
     branding: brand('#324a7d', '#8fb4d9',
       'Northwind Planning\n456 Demo Avenue, Testville\nABN 11 111 111 111',
       'Northwind Planning — sample footer. This is demo data.'),

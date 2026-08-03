@@ -1,7 +1,7 @@
 ---
 id: 0012-archive-restore
 title: STEWARD — archive instead of delete, restore afterwards, and a Drive folder that agrees
-status: todo
+status: done
 owner: admin
 created: 2026-08-04
 milestone: M3 (ship it)
@@ -9,28 +9,28 @@ tags: [archive, soft-delete, migration, drive, audit, mirror]
 tasks:
   - id: migration-ladder
     title: A migration that can ALTER — the schema has only ever been able to CREATE
-    status: todo
+    status: done
   - id: archived-column
     title: archivedAt on clients and customers, and the death of the dead `active` flag
-    status: todo
+    status: done
   - id: repo-filter
     title: Filtering by descent in SQL, so no caller has to remember to ask
-    status: todo
+    status: done
   - id: archive-verbs
     title: client.archive / client.restore / customer.archive / customer.restore
-    status: todo
+    status: done
   - id: archived-views
     title: Somewhere to see what was archived, and a way back
-    status: todo
+    status: done
   - id: drive-archived-folder
     title: STEWARD/Archived — move the files, best-effort, and move them back
-    status: todo
+    status: done
   - id: mirror-column
     title: The mirror keeps archived rows and says so, because deleting rows reads as loss
-    status: todo
+    status: done
   - id: verify
     title: The gate — the digest is the one that bites, and only running it proves anything
-    status: todo
+    status: done
 ---
 
 # STEWARD — archive and restore (0012)
@@ -270,3 +270,45 @@ verb with an audit row, not a cell.
   real, that is a different verb with a different confirmation, and nobody has asked for it.
 - **Archived tickets.** By descent only, per above. If a ticket ever needs archiving on its own
   the column goes on `tickets` and the descent rule already covers the rest.
+
+## Built 2026-08-04 — and what the browser pass caught
+
+Every task is done. 266 tests green, `tsc` clean, and the whole thing exercised against a
+**copy of the operator's real database**, which is the only way the migration means anything.
+
+What the pass proved, by executing it:
+
+- **The ladder works on real data.** `/tmp/0012.db` went from `user_version` 0 with no
+  `archivedAt` to version 1 with the column on both tables, all fourteen rows intact and every
+  one of them live. Running it a second time is a no-op rather than `duplicate column name`,
+  and a fresh `:memory:` database is stamped at the latest version without taking a step —
+  both cases are in `app/repo/migrate.test.ts`.
+- **Descent works, and nothing is stamped.** Archiving a client took it out of `/clients`
+  (2 → 1), its customers out of `/customers` (6 → 3) and its tickets off the board (6 → 3),
+  with **zero** `archivedAt` written to any customer. The acid test ran live: archive a
+  customer on her own, archive her client, restore the client — she is still archived, and she
+  is the only one.
+- **The digest excludes archived work.** `TXSMIT0001` disappears from its client's report the
+  moment its customer is archived. This is the surface a missed filter breaks silently, and it
+  is fixed for free because the repository filters rather than the callers.
+- The record stays addressable (`200`, badged, with its full history), `/files` still lists its
+  documents, and the nav counts follow.
+
+**The one defect this pass found.** The archive block sits at the foot of a panel, which is
+right — and it meant a reader landing on an archived record saw an entirely ordinary page,
+with an Edit button, and did not learn otherwise for another thousand pixels. `tsc` cannot see
+that and no test would have. The badge now sits in the meta line beside the code, as a FILLED
+inversion rather than an outline, because 0008 established that an outlined state vanishes in
+dark where `--color-accent-soft` equals `--color-surface`.
+
+**One deliberate deviation from the plan above.** It said an archived record's actions would be
+disabled. They are not: Edit still works. Correcting a typo on an archived record without
+restoring it first is reasonable, and every edit is audited like any other. The badge is what
+makes the state legible, and that is the part that was actually missing.
+
+**Not proven, and it needs the operator's Drive:** the `STEWARD/Archived` folder. The code path
+is written (`GoogleDriveStore.moveArchived`, `ensureFolder` with a parent, the same
+`addParents`/`removeParents` PATCH the mirror uses) and its failure mode is tested — a Drive
+error is reported in the reply and does **not** undo the archive. But no real file has moved,
+because the verify database was a copy and its Drive documents belong to the original. Archive
+a customer that has a saved PDF on the live database and look in Drive.

@@ -44,7 +44,9 @@ import {
   documentChips, fileSize, previewKind, icon, type IconName,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
-import type { AuditEntity, Client, Customer, DocumentRef, Ticket, TicketStatus } from './app/domain/types.ts';
+import type {
+  AuditEntity, Client, Customer, DocumentRef, ListScope, Ticket, TicketStatus,
+} from './app/domain/types.ts';
 import { TICKET_STATUSES } from './app/domain/types.ts';
 import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
@@ -98,11 +100,54 @@ const services = makeServices(repos, documentStores);
 const sheetsMirror = makeSheetsMirror(
   repos.settings, googleAuth, config.google.folderName, fetch, config.google.clientId,
 );
-/** Everything the mirror puts in the sheet, read fresh at push time. */
+/**
+ * Move an archived record's Drive files into STEWARD/Archived, and back on restore (0012).
+ *
+ * Archiving is a local database write; this is the optional consequence. It runs only when
+ * Google is connected, touches only documents this app actually stored in Drive, and reports
+ * a failure as a note rather than raising — the record is already archived either way.
+ *
+ * A client's files are its customers' and their tickets': a client owns no documents itself.
+ */
+const moveArchivedFiles = async (
+  entity: 'client' | 'customer',
+  id: string,
+  archived: boolean,
+): Promise<{ moved: number; note?: string }> => {
+  if (!googleAuth.status().connected) return { moved: 0 };
+  const customers = entity === 'customer'
+    ? [id]
+    : services.repos.customers.list(id, 'all').map((c) => c.id);
+  const tickets = customers.flatMap((c) => services.repos.tickets.list(c, 'all').map((t) => t.id));
+
+  const docs = [
+    ...customers.flatMap((c) => services.documentsFor('customer', c)),
+    ...tickets.flatMap((t) => services.documentsFor('ticket', t)),
+  ];
+  // `storage === 'drive'` excludes the pre-Google local rows; a truthy `storageId` excludes
+  // LINKED files, which are the operator's own and deliberately carry no id (0006).
+  const ids = docs.filter((d) => d.storage === 'drive' && d.storageId).map((d) => d.storageId);
+  if (!ids.length) return { moved: 0 };
+
+  try {
+    return { moved: await driveStore.moveArchived(ids, archived) };
+  } catch (e) {
+    return { moved: 0, note: e instanceof Error ? e.message : String(e) };
+  }
+};
+
+/**
+ * Everything the mirror puts in the sheet, read fresh at push time.
+ *
+ * `'all'`, not the default live scope (0012): archived records keep their row and carry a
+ * date in the `archived` column. Dropping them would look like data loss to whoever has the
+ * spreadsheet open, and 0011 pulls from this sheet, where a missing row already means
+ * "neither create nor delete".
+ */
 const mirrorData = () => ({
-  clients: services.repos.clients.list(),
-  customers: services.repos.customers.list(),
-  tickets: services.repos.tickets.list(),
+  clients: services.repos.clients.list('all'),
+  customers: services.repos.customers.list(undefined, 'all'),
+  tickets: services.repos.tickets.list(undefined, 'all'),
 });
 
 // ---- the daily digest (0013) ----
@@ -469,12 +514,78 @@ function logoSection(c: Client): string {
   );
 }
 
+/**
+ * The badge that goes in the META line, not at the foot of the page.
+ *
+ * The archive block at the bottom of a panel says everything — and the browser pass found
+ * that a reader landing on an archived record sees a perfectly ordinary page with an Edit
+ * button and does not learn otherwise for another thousand pixels. The state has to be
+ * legible where the name is.
+ */
+const archivedBadge = (archivedAt: string | null): string[] =>
+  archivedAt ? [`<span class="badge badge-archived">Archived</span>`] : [];
+
+/**
+ * `?archived=1` — the door to what is otherwise invisible by construction (0012).
+ *
+ * Deliberately the cheap version. Real filtering is 0014's job and archived-versus-live is
+ * one facet among several there; building a filter framework here would be 0014 arriving
+ * early and badly. The repository read already takes the scope, so 0014 absorbs this.
+ */
+const archivedScope = (req: Request): ListScope =>
+  new URL(req.url).searchParams.get('archived') ? 'archived' : 'live';
+
+/** The way in and back out, shown only when there is something to see. */
+const archivedLink = (path: string, scope: ListScope, archivedCount: number): string => {
+  if (scope === 'archived') return `<p class="panel-meta"><a href="${path}">← Back to the live list</a></p>`;
+  if (!archivedCount) return '';
+  return `<p class="panel-meta"><a href="${path}?archived=1">${archivedCount} archived</a></p>`;
+};
+
+/**
+ * Archive, or restore — the delete STEWARD never had (0012).
+ *
+ * It states what will happen and then does it, rather than asking twice: the verb is
+ * reversible, and a confirmation that adds no information is a click people learn to
+ * dismiss. The counts are read, not guessed, and they include records that are already
+ * archived on their own, because those leave the lists too and come back untouched.
+ */
+function archiveSection(entity: 'client' | 'customer', id: string, archivedAt: string | null): string {
+  if (archivedAt) {
+    return (
+      `<div class="archived-note">` +
+      `<p><strong>Archived</strong> ${esc(auditTime(archivedAt))}. It is hidden from every ` +
+      `list and from the daily digest, and it still has its full history.</p>` +
+      `<form class="fb inline" data-action="${entity}.restore" data-mode="update">` +
+      `<input type="hidden" name="id" value="${esc(id)}" />` +
+      `<button type="submit" class="btn" data-variant="soft">Restore</button></form></div>`
+    );
+  }
+  const { customers, tickets } = services.archiveImpact(entity, id);
+  const goes = [
+    customers && `${customers} customer${customers === 1 ? '' : 's'}`,
+    tickets && `${tickets} ticket${tickets === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(' and ');
+  return (
+    `<div class="archive-box">` +
+    `<p class="muted-note">Archiving hides this record${goes ? ` and its ${goes}` : ''} from every ` +
+    `list and from the daily digest. Nothing is deleted, the history stays, and it can be ` +
+    `restored. Files in Drive move to the archived folder.</p>` +
+    `<form class="fb inline" data-action="${entity}.archive" data-mode="update">` +
+    `<input type="hidden" name="id" value="${esc(id)}" />` +
+    `<button type="submit" class="btn" data-variant="soft">Archive</button></form></div>`
+  );
+}
+
 function clientPanel(c: Client, inDrawer = false, notice = ''): string {
-  const customers = services.repos.customers.list(c.id);
+  // `'all'` on an archived client's own page: its customers are hidden from the LISTS by
+  // descent, but the record you are looking at is exactly where you need to see them.
+  const customers = services.repos.customers.list(c.id, c.archivedAt ? 'all' : 'live');
   return (
     `<div data-panel-title="${esc(c.name)}">` +
     notice +
-    panelMeta([`<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`,
+    panelMeta([...archivedBadge(c.archivedAt),
+      `<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`,
       `${customers.length} customer${customers.length === 1 ? '' : 's'}`]) +
     `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
     logoSection(c) +
@@ -482,6 +593,7 @@ function clientPanel(c: Client, inDrawer = false, notice = ''): string {
     chips(customers.map((x) => ({ href: `/customers/${x.id}`, label: personsLabel(x) })), 'No customers yet.') +
     documentsSection('client', c.id) +
     historySection('client', c.id) +
+    archiveSection('client', c.id, c.archivedAt) +
     fullPageLink(`/clients/${esc(c.id)}`, inDrawer) +
     `</div>`
   );
@@ -490,17 +602,18 @@ function clientPanel(c: Client, inDrawer = false, notice = ''): string {
 function customerPanel(c: Customer, inDrawer = false): string {
   const clients = services.repos.clients.list();
   const client = services.repos.clients.get(c.clientId);
-  const tickets = services.repos.tickets.list(c.id);
+  const tickets = services.repos.tickets.list(c.id, c.archivedAt ? 'all' : 'live');
   return (
     `<div data-panel-title="${esc(personsLabel(c))}">` +
     lineage([client ? clientLink(client) : '', `<strong>${esc(personsLabel(c))}</strong>`].filter(Boolean)) +
-    panelMeta([`<span class="mono">${esc(c.code)}</span>`,
+    panelMeta([...archivedBadge(c.archivedAt), `<span class="mono">${esc(c.code)}</span>`,
       `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`]) +
     `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>` +
     `<h3 class="section-title">Tickets</h3>` +
     chips(tickets.map((t) => ({ href: `/tickets/${t.id}`, label: `${t.ticketId} · ${t.title}` })), 'No tickets yet.') +
     documentsSection('customer', c.id) +
     historySection('customer', c.id) +
+    archiveSection('customer', c.id, c.archivedAt) +
     fullPageLink(`/customers/${esc(c.id)}`, inDrawer) +
     `</div>`
   );
@@ -777,6 +890,7 @@ const server = listen((port) => Bun.serve({
             // The same actor the door stamps on the intent — a send through this
             // door is somebody at the keyboard, not the clock.
             sendDigest: () => runDigest(localDate(new Date()), 'human'),
+            moveArchivedFiles,
           });
           if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
           for (const op of result.ops) stream.push(session, OP_EVENT, op);
@@ -926,12 +1040,15 @@ const server = listen((port) => Bun.serve({
 
     // --- CRM surfaces (data-driven) ---
     '/clients': {
-      GET: () => {
-        const clients = services.repos.clients.list();
+      GET: (req: Request) => {
+        const scope = archivedScope(req);
+        const clients = services.repos.clients.list(scope);
         const rows = clients.map(clientRow).join('')
-          || `<tr class="data-table__empty"><td colspan="3">No clients yet.</td></tr>`;
-        return layout('Clients',
-          `<div class="page-head"><h1>Clients</h1><span class="sub">${clients.length} records</span></div>` +
+          || `<tr class="data-table__empty"><td colspan="3">${scope === 'archived' ? 'Nothing archived.' : 'No clients yet.'}</td></tr>`;
+        return layout(scope === 'archived' ? 'Archived clients' : 'Clients',
+          `<div class="page-head"><h1>${scope === 'archived' ? 'Archived clients' : 'Clients'}</h1>` +
+          `<span class="sub">${clients.length} records</span></div>` +
+          archivedLink('/clients', scope, services.repos.clients.list('archived').length) +
           `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Code</th><th>Company info</th></tr></thead>` +
           `<tbody class="rows" data-surface="client-list">${rows}</tbody></table></div>`,
@@ -1004,14 +1121,17 @@ const server = listen((port) => Bun.serve({
       },
     },
     '/customers': {
-      GET: () => {
+      GET: (req: Request) => {
+        const scope = archivedScope(req);
         const clients = services.repos.clients.list();
-        const customers = services.repos.customers.list();
+        const customers = services.repos.customers.list(undefined, scope);
         const rows = customers.map(customerRow).join('')
-          || `<tr class="data-table__empty"><td colspan="3">No customers yet.</td></tr>`;
+          || `<tr class="data-table__empty"><td colspan="3">${scope === 'archived' ? 'Nothing archived.' : 'No customers yet.'}</td></tr>`;
         const note = clients.length ? '' : `<p class="muted">Create a client first.</p>`;
-        return layout('Customers',
-          `<div class="page-head"><h1>Customers</h1><span class="sub">${customers.length} records</span></div>` +
+        return layout(scope === 'archived' ? 'Archived customers' : 'Customers',
+          `<div class="page-head"><h1>${scope === 'archived' ? 'Archived customers' : 'Customers'}</h1>` +
+          `<span class="sub">${customers.length} records</span></div>` +
+          archivedLink('/customers', scope, services.repos.customers.list(undefined, 'archived').length) +
           `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Code</th><th>Email</th></tr></thead>` +
           `<tbody class="rows" data-surface="customer-list">${rows}</tbody></table></div>${note}`,

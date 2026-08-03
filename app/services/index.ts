@@ -27,7 +27,7 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
   const audit = (
     entity: 'client' | 'customer' | 'ticket',
     entityId: string,
-    action: 'create' | 'update' | 'archive' | 'delete',
+    action: 'create' | 'update' | 'archive' | 'restore' | 'delete',
     actor: string,
     diff: unknown,
   ) => repos.audit.append({ entity, entityId, action, actor, diff: JSON.stringify(diff) });
@@ -60,6 +60,39 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
       const c = repos.clients.update(id, patch);
       audit('client', id, 'update', by, diff);
       return c;
+    },
+
+    /**
+     * Archive and restore, for both entities (0012).
+     *
+     * `archive` and `restore` are their own audit actions rather than an update, because
+     * "archived" is not a field an edit form set — it is the verb STEWARD has instead of a
+     * delete. The diff is one key, so nothing large ever reaches the append-only table.
+     *
+     * Only the record acted on is stamped. A client's customers and tickets vanish from the
+     * lists WITH it, by descent in SQL, so restoring the client restores exactly the state
+     * that was there before — including any customer that was already archived on its own.
+     */
+    setClientArchived(id: string, at: string | null, by: string): Client {
+      const c = repos.clients.setArchived(id, at);
+      audit('client', id, at ? 'archive' : 'restore', by, { archivedAt: at });
+      return c;
+    },
+    setCustomerArchived(id: string, at: string | null, by: string): Customer {
+      const c = repos.customers.setArchived(id, at);
+      audit('customer', id, at ? 'archive' : 'restore', by, { archivedAt: at });
+      return c;
+    },
+    /** What archiving a record would take out of the lists with it — for the confirmation. */
+    archiveImpact(entity: 'client' | 'customer', id: string): { customers: number; tickets: number } {
+      if (entity === 'customer') {
+        return { customers: 0, tickets: repos.tickets.list(id, 'all').length };
+      }
+      const customers = repos.customers.list(id, 'all');
+      return {
+        customers: customers.length,
+        tickets: customers.reduce((n, c) => n + repos.tickets.list(c.id, 'all').length, 0),
+      };
     },
 
     // --- customers ---

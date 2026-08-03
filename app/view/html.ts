@@ -309,7 +309,8 @@ export function auditTime(iso: string): string {
 }
 
 const AUDIT_VERBS: Record<string, string> = {
-  create: 'created', update: 'updated', archive: 'archived', delete: 'deleted',
+  create: 'created', update: 'updated', archive: 'archived', restore: 'restored',
+  delete: 'deleted',
 };
 
 /** The stored action verb as English. Unknown verbs pass through unchanged. */

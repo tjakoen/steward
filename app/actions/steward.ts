@@ -4,15 +4,16 @@
 
 import type { RenderOp } from '@tjakoen/grain/ai/contract.ts';
 import type { Services } from '../services/index.ts';
-import type { Person, TicketStatus } from '../domain/types.ts';
+import type { Client, Customer, Person, TicketStatus } from '../domain/types.ts';
 import { TICKET_STATUSES } from '../domain/types.ts';
 import {
   customerRow, clientRow, personsLabel, ticketCard, progressItem,
 } from '../view/html.ts';
 
 export const STEWARD_ACTIONS = [
-  'client.create', 'client.update',
+  'client.create', 'client.update', 'client.archive', 'client.restore',
   'customer.create', 'customer.update', 'customer.search',
+  'customer.archive', 'customer.restore',
   'ticket.create', 'ticket.update', 'ticket.status', 'ticket.progress',
   'sheet.push', 'digest.send',
 ] as const;
@@ -74,6 +75,17 @@ export interface SheetPush {
 export interface StewardDeps {
   pushSheet?: () => Promise<SheetPush>;
   sendDigest?: () => Promise<DigestSend>;
+  /**
+   * Move a record's Drive files into (or back out of) the archived folder. Structural, so
+   * this module imports no Drive code — and OPTIONAL, so a dispatcher without Google still
+   * archives. It is called after the database is stamped and its failure is reported, never
+   * raised: a record that failed to archive because Google was down would be the worse bug.
+   */
+  moveArchivedFiles?: (
+    entity: 'client' | 'customer',
+    id: string,
+    archived: boolean,
+  ) => Promise<{ moved: number; note?: string }>;
 }
 
 /** What a digest send reports back. Structural, so this module imports no mail code. */
@@ -84,8 +96,13 @@ export interface DigestSend {
   tickets: number;
 }
 
+/** The verbs that reach outside this process, and therefore the ones that return a promise. */
+export type AsyncAction =
+  | 'sheet.push' | 'digest.send'
+  | 'client.archive' | 'client.restore' | 'customer.archive' | 'customer.restore';
+
 /**
- * `sheet.push` and `digest.send` are the verbs that talk to the outside world, and
+ * `sheet.push`, `digest.send` and the four archive verbs talk to the outside world, and
  * they are the only ones that return a promise. The overloads say exactly that: a
  * caller naming any other action gets a plain result and needs no await, while the
  * door — which only knows it holds *some* action — awaits the union. A second door
@@ -93,7 +110,7 @@ export interface DigestSend {
  */
 export function dispatchSteward(
   services: Services,
-  intent: StewardIntent & { action: Exclude<StewardAction, 'sheet.push' | 'digest.send'> },
+  intent: StewardIntent & { action: Exclude<StewardAction, AsyncAction> },
   deps?: StewardDeps,
 ): StewardResult;
 export function dispatchSteward(
@@ -200,7 +217,7 @@ export function dispatchSteward(
       }
       case 'client.create': {
         const c = services.createClient(
-          { name: require_(p.name, 'name'), code: require_(p.code, 'code'), active: true,
+          { name: require_(p.name, 'name'), code: require_(p.code, 'code'),
             branding: {
               logoDataUrl: null,
               primaryColor: str(p.primaryColor) || '#1f4e5f',
@@ -264,6 +281,67 @@ export function dispatchSteward(
         );
         return { ok: true, ops: [op(`client:${id}`, 'replace', clientRow(c))],
           reply: `Updated client ${c.name}.`, data: c };
+      }
+
+      // --- archive and restore (0012) ------------------------------------------
+      //
+      // STEWARD has never had a delete: `remove()` exists on every repository and only the
+      // demo reseed calls it. These four verbs are the delete, and they are reversible.
+      //
+      // The record acted on is the only one stamped. Its descendants leave the lists with it
+      // because the repository filters by lineage, which is what makes a restore give back
+      // exactly the state that was there — including a customer that was already archived.
+      case 'client.archive':
+      case 'client.restore':
+      case 'customer.archive':
+      case 'customer.restore': {
+        const [entity, verb] = intent.action.split('.') as ['client' | 'customer', 'archive' | 'restore'];
+        const id = require_(p.id, 'id');
+        const archived = verb === 'archive';
+        const at = archived ? new Date().toISOString() : null;
+
+        const cur = entity === 'client'
+          ? services.repos.clients.get(id)
+          : services.repos.customers.get(id);
+        if (!cur) throw new Error(`${entity} not found: ${id}`);
+
+        const impact = services.archiveImpact(entity, id);
+        const rec = entity === 'client'
+          ? services.setClientArchived(id, at, actor)
+          : services.setCustomerArchived(id, at, actor);
+        const name = 'name' in rec ? rec.name : personsLabel(rec);
+
+        // The database is already stamped. Drive is a courtesy on top of it, so a failure is
+        // a sentence in the reply and never an exception — see StewardDeps.moveArchivedFiles.
+        const drive = deps.moveArchivedFiles
+          ? deps.moveArchivedFiles(entity, id, archived).catch(
+              (e: unknown) => ({ moved: 0, note: e instanceof Error ? e.message : String(e) }),
+            )
+          : Promise.resolve({ moved: 0, note: undefined as string | undefined });
+
+        return drive.then((d) => {
+          const row = entity === 'client'
+            ? clientRow(rec as Client)
+            : customerRow(rec as Customer);
+          // Archiving takes the row out of the live list; restoring puts it back. Either way
+          // the OTHER list is a page reload away, which is the honest cheap answer until 0014.
+          const ops = archived
+            ? [op(`${entity}:${id}`, 'remove', '')]
+            : [op(`${entity}-list`, 'append', row)];
+          const took = impact.tickets || impact.customers
+            ? ` ${[impact.customers && `${impact.customers} customer${impact.customers === 1 ? '' : 's'}`,
+                   impact.tickets && `${impact.tickets} ticket${impact.tickets === 1 ? '' : 's'}`]
+                .filter(Boolean).join(' and ')} went with it.`
+            : '';
+          const files = d.note
+            ? ` Drive was not updated: ${d.note}`
+            : d.moved ? ` ${d.moved} file${d.moved === 1 ? '' : 's'} moved in Drive.` : '';
+          return { ok: true, ops,
+            reply: archived
+              ? `Archived ${name}.${took}${files} It can be restored.`
+              : `Restored ${name}.${files}`,
+            data: rec };
+        });
       }
     }
   } catch (e) {

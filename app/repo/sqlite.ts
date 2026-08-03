@@ -8,6 +8,7 @@ import type {
   Client,
   Customer,
   DocumentRef,
+  ListScope,
   Ticket,
 } from '../domain/types.ts';
 import type {
@@ -30,26 +31,41 @@ const now = (): string => new Date().toISOString();
 
 interface ClientRow {
   id: string; name: string; code: string; branding: string;
-  active: number; createdAt: string; updatedAt: string;
+  archivedAt: string | null; createdAt: string; updatedAt: string;
 }
 const toClient = (r: ClientRow): Client => ({
   id: r.id, name: r.name, code: r.code,
   branding: JSON.parse(r.branding),
-  active: r.active === 1,
+  archivedAt: r.archivedAt,
   createdAt: r.createdAt, updatedAt: r.updatedAt,
 });
 
 interface CustomerRow {
   id: string; clientId: string; code: string; persons: string;
   email: string; phone: string; externalId: string; notes: string;
-  createdAt: string; updatedAt: string;
+  archivedAt: string | null; createdAt: string; updatedAt: string;
 }
 const toCustomer = (r: CustomerRow): Customer => ({
   id: r.id, clientId: r.clientId, code: r.code,
   persons: JSON.parse(r.persons),
   email: r.email, phone: r.phone, externalId: r.externalId, notes: r.notes,
+  archivedAt: r.archivedAt,
   createdAt: r.createdAt, updatedAt: r.updatedAt,
 });
+
+/**
+ * The visibility predicate, as SQL, once — because there are a dozen callers and every one
+ * that forgot would be a leak. The digest is the surface where forgetting is invisible until
+ * a real morning email carries an archived customer's ticket.
+ *
+ * `live` is the whole lineage being unarchived. `archived` is its negation, which is what
+ * makes the archived view show a client's customers as well as the clients themselves.
+ */
+const scopeSql = (scope: ListScope, cols: string[]): string => {
+  if (scope === 'all') return '1=1';
+  const live = cols.map((c) => `${c} IS NULL`).join(' AND ');
+  return scope === 'live' ? live : `NOT (${live})`;
+};
 
 interface TicketRow {
   id: string; customerId: string; ticketId: string; title: string;
@@ -71,20 +87,21 @@ const toTicket = (r: TicketRow): Ticket => ({
 class SqliteClientRepository implements ClientRepository {
   constructor(private d: Database) {}
 
-  list(): Client[] {
-    return this.d.query<ClientRow, []>('SELECT * FROM clients ORDER BY name')
-      .all().map(toClient);
+  list(scope: ListScope = 'live'): Client[] {
+    return this.d.query<ClientRow, []>(
+      `SELECT * FROM clients WHERE ${scopeSql(scope, ['archivedAt'])} ORDER BY name`,
+    ).all().map(toClient);
   }
   get(id: string): Client | null {
     const r = this.d.query<ClientRow, [string]>('SELECT * FROM clients WHERE id = ?').get(id);
     return r ? toClient(r) : null;
   }
   create(input: NewClient): Client {
-    const c: Client = { ...input, id: newId('cli'), createdAt: now(), updatedAt: now() };
+    const c: Client = { ...input, id: newId('cli'), archivedAt: null, createdAt: now(), updatedAt: now() };
     this.d.run(
-      `INSERT INTO clients (id,name,code,branding,active,createdAt,updatedAt)
-       VALUES (?,?,?,?,?,?,?)`,
-      [c.id, c.name, c.code, JSON.stringify(c.branding), c.active ? 1 : 0, c.createdAt, c.updatedAt],
+      `INSERT INTO clients (id,name,code,branding,createdAt,updatedAt)
+       VALUES (?,?,?,?,?,?)`,
+      [c.id, c.name, c.code, JSON.stringify(c.branding), c.createdAt, c.updatedAt],
     );
     return c;
   }
@@ -93,10 +110,18 @@ class SqliteClientRepository implements ClientRepository {
     if (!cur) throw new Error(`client not found: ${id}`);
     const next: Client = { ...cur, ...patch, id, updatedAt: now() };
     this.d.run(
-      `UPDATE clients SET name=?,code=?,branding=?,active=?,updatedAt=? WHERE id=?`,
-      [next.name, next.code, JSON.stringify(next.branding), next.active ? 1 : 0, next.updatedAt, id],
+      `UPDATE clients SET name=?,code=?,branding=?,updatedAt=? WHERE id=?`,
+      [next.name, next.code, JSON.stringify(next.branding), next.updatedAt, id],
     );
     return next;
+  }
+  setArchived(id: string, at: string | null): Client {
+    const cur = this.get(id);
+    if (!cur) throw new Error(`client not found: ${id}`);
+    // `updatedAt` deliberately does NOT move: archiving is not an edit of the record, and
+    // the digest and the sheet both read that field as "when did this last change".
+    this.d.run('UPDATE clients SET archivedAt=? WHERE id=?', [at, id]);
+    return { ...cur, archivedAt: at };
   }
   remove(id: string): void {
     this.d.run('DELETE FROM clients WHERE id = ?', [id]);
@@ -108,27 +133,31 @@ class SqliteClientRepository implements ClientRepository {
 class SqliteCustomerRepository implements CustomerRepository {
   constructor(private d: Database) {}
 
-  list(clientId?: string): Customer[] {
+  list(clientId?: string, scope: ListScope = 'live'): Customer[] {
+    const where = scopeSql(scope, ['c.archivedAt', 'cl.archivedAt']);
+    const sql = `SELECT c.* FROM customers c JOIN clients cl ON cl.id = c.clientId
+                 WHERE ${where}${clientId ? ' AND c.clientId = ?' : ''} ORDER BY c.code`;
     const rows = clientId
-      ? this.d.query<CustomerRow, [string]>('SELECT * FROM customers WHERE clientId = ? ORDER BY code').all(clientId)
-      : this.d.query<CustomerRow, []>('SELECT * FROM customers ORDER BY code').all();
+      ? this.d.query<CustomerRow, [string]>(sql).all(clientId)
+      : this.d.query<CustomerRow, []>(sql).all();
     return rows.map(toCustomer);
   }
   get(id: string): Customer | null {
     const r = this.d.query<CustomerRow, [string]>('SELECT * FROM customers WHERE id = ?').get(id);
     return r ? toCustomer(r) : null;
   }
-  search(query: string): Customer[] {
+  search(query: string, scope: ListScope = 'live'): Customer[] {
     const like = `%${query.toLowerCase()}%`;
     return this.d.query<CustomerRow, [string, string, string]>(
-      `SELECT * FROM customers
-       WHERE lower(persons) LIKE ? OR lower(email) LIKE ? OR lower(code) LIKE ?
-       ORDER BY code LIMIT 50`,
+      `SELECT c.* FROM customers c JOIN clients cl ON cl.id = c.clientId
+       WHERE ${scopeSql(scope, ['c.archivedAt', 'cl.archivedAt'])}
+         AND (lower(c.persons) LIKE ? OR lower(c.email) LIKE ? OR lower(c.code) LIKE ?)
+       ORDER BY c.code LIMIT 50`,
     ).all(like, like, like).map(toCustomer);
   }
   create(input: NewCustomer): Customer {
     const code = input.code || customerCodeFromPersons(input.persons);
-    const c: Customer = { ...input, code, id: newId('cus'), createdAt: now(), updatedAt: now() };
+    const c: Customer = { ...input, code, id: newId('cus'), archivedAt: null, createdAt: now(), updatedAt: now() };
     this.d.run(
       `INSERT INTO customers (id,clientId,code,persons,email,phone,externalId,notes,createdAt,updatedAt)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -146,6 +175,12 @@ class SqliteCustomerRepository implements CustomerRepository {
     );
     return next;
   }
+  setArchived(id: string, at: string | null): Customer {
+    const cur = this.get(id);
+    if (!cur) throw new Error(`customer not found: ${id}`);
+    this.d.run('UPDATE customers SET archivedAt=? WHERE id=?', [at, id]);
+    return { ...cur, archivedAt: at };
+  }
   remove(id: string): void {
     this.d.run('DELETE FROM customers WHERE id = ?', [id]);
   }
@@ -156,10 +191,19 @@ class SqliteCustomerRepository implements CustomerRepository {
 class SqliteTicketRepository implements TicketRepository {
   constructor(private d: Database) {}
 
-  list(customerId?: string): Ticket[] {
+  list(customerId?: string, scope: ListScope = 'live'): Ticket[] {
+    // Two joins, because a ticket is hidden by EITHER ancestor. There is no `tickets.archivedAt`
+    // on purpose: the human asked to archive customers and clients, and a ticket that is
+    // finished already has a status that says so.
+    const where = scopeSql(scope, ['cu.archivedAt', 'cl.archivedAt']);
+    const sql = `SELECT t.* FROM tickets t
+                 JOIN customers cu ON cu.id = t.customerId
+                 JOIN clients cl ON cl.id = cu.clientId
+                 WHERE ${where}${customerId ? ' AND t.customerId = ?' : ''}
+                 ORDER BY t.createdAt DESC`;
     const rows = customerId
-      ? this.d.query<TicketRow, [string]>('SELECT * FROM tickets WHERE customerId = ? ORDER BY createdAt DESC').all(customerId)
-      : this.d.query<TicketRow, []>('SELECT * FROM tickets ORDER BY createdAt DESC').all();
+      ? this.d.query<TicketRow, [string]>(sql).all(customerId)
+      : this.d.query<TicketRow, []>(sql).all();
     return rows.map(toTicket);
   }
   get(id: string): Ticket | null {

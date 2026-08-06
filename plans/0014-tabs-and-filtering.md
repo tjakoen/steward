@@ -462,3 +462,26 @@ What must be **executed**:
 - **Tabs on the list pages.** A "Live | Archived" tabset above `/clients` would be a second way to
   express the scope facet, and two controls for one predicate is worse than one. Facets won. If
   the human reads the scope facet as too quiet, the tabset is the alternative to try.
+
+## Two things the operator hit before this plan started (2026-08-06)
+
+Both are small, both belong here rather than anywhere else.
+
+**"Showing 0 of 2" reads as a bug.** When a filter matches nothing the note states the failure
+in the driest possible way, next to a table that has silently become empty. An empty result is
+the one case that needs a sentence rather than a count: say that nothing matched *the query*,
+name the query, and offer the way out — the Clear control already exists and Escape already
+works, but neither is mentioned at the moment the operator needs them. Wording is this plan's
+call; "0 of 2" is not it.
+
+**Stale counts after a live update.** 0012 hit this from the other side: an SSE `remove` took a
+row out of a list while the page-head count, both rail counts and the archived link went on
+describing the previous state. It was solved there by reloading on `dismiss` and carrying the
+message across in `sessionStorage` — deliberately the blunt instrument, because patching each
+count from the client is a second source of truth that drifts.
+
+This plan owns the general version of the problem, and it is the same root cause as the
+`applyOp`-never-re-runs-`applyFilter` bug recorded above: **the DOM is being treated as the
+count of record**. Whatever this plan does about facets should settle where a count comes from,
+so a filtered view, an SSE append and a server render cannot disagree about how many things
+there are.

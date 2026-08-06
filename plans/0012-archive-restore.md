@@ -336,3 +336,12 @@ because someone who needs to copy an error should not be racing a timer. Errors 
 inline `.form-status` beside the field that caused them.
 
 GRAIN has no toast, so this is STEWARD's, under STEWARD's own class names.
+
+## The Drive round trip, confirmed by the operator 2026-08-06
+
+The last unproven step is proven. Archiving a customer that owns Drive files creates
+`STEWARD/Archived` and moves them into it; restoring moves them back. Confirmed by looking in
+the operator's own Drive, which is the only place that check means anything — my own verify ran
+against a COPY of the database, whose rows point at files belonging to the original.
+
+**0012 is closed.**

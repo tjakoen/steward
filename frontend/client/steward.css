@@ -453,3 +453,40 @@ form.inline { display: inline; }
   font-size: var(--text-sm, .875rem); line-height: 1.5;
   color: var(--color-muted, #6E6C64);
 }
+
+/* --- snackbar -------------------------------------------------------------
+   A verb's own sentence, where the operator is actually looking. Fixed to the
+   viewport rather than the pane: the drawer closes underneath an archive, so a
+   message anchored to the pane would animate away with it.
+
+   Above the drawer and its scrim — a confirmation you cannot read is not one. */
+.snackbar {
+  position: fixed; z-index: 60; inset-inline: 0; bottom: var(--space-6, 1.5rem);
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-2, .4rem);
+  pointer-events: none; /* the empty host must never eat a click */
+}
+.snack {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: var(--space-3, .75rem);
+  max-width: min(34rem, calc(100vw - 2rem));
+  padding: var(--space-3, .75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface, #F3F1E9); color: inherit;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  font-size: var(--text-sm, .875rem); line-height: 1.45;
+}
+/* Failure is a left rule, not a red fill: the message is the point and it still
+   has to be readable in both schemes. */
+.snack[data-ok="false"] { border-left: 3px solid var(--color-danger, #a3392f); }
+.snack__close {
+  flex: none; background: none; border: 0; padding: 0 0 0 var(--space-2, .4rem);
+  color: var(--color-muted, #6E6C64); font-size: 1.1em; line-height: 1;
+  cursor: pointer;
+}
+.snack__close:hover { color: inherit; }
+@media (prefers-reduced-motion: no-preference) {
+  .snack { animation: snack-in .18s ease-out; }
+  @keyframes snack-in { from { opacity: 0; transform: translateY(6px); } }
+}

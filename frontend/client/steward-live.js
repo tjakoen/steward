@@ -188,6 +188,72 @@ es.addEventListener('op', (e) => {
   try { applyOp(JSON.parse(e.data)); } catch { /* ignore */ }
 });
 
+// ---- snackbar ---------------------------------------------------------------
+// Every verb composes a sentence and the browser used to discard it, printing
+// "Saved." at the foot of a form nobody was looking at any more. An archive is
+// the case that made that plainly wrong: the record leaves the list, the drawer
+// stays open showing it, and "Saved" is the wrong word for what happened.
+//
+// One live region, reused. `role="status"` + aria-live="polite" so a screen
+// reader is told without stealing focus — a message that grabbed focus mid-task
+// would be worse than the silence it replaces.
+const SNACK_MS = 6000;
+
+function snackHost() {
+  let host = document.getElementById('snackbar');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'snackbar';
+    host.className = 'snackbar';
+    host.setAttribute('role', 'status');
+    host.setAttribute('aria-live', 'polite');
+    document.body.appendChild(host);
+  }
+  return host;
+}
+
+// A message that survives exactly one navigation.
+//
+// Archiving changes more than the row it removes: the "6 records" beside the title,
+// the nav counts for Customers AND Tickets, the archived-view link that should now
+// appear. Patching each of those from the client is a second source of truth that
+// drifts; reloading makes the page server-truth again. So the sentence is parked
+// first and shown by the page that comes back.
+const SNACK_PENDING = 'steward.snack';
+
+function snackLater(msg, ok = true) {
+  try { sessionStorage.setItem(SNACK_PENDING, JSON.stringify({ msg, ok })); } catch { /* noop */ }
+}
+
+function drainSnack() {
+  let raw = null;
+  try { raw = sessionStorage.getItem(SNACK_PENDING); sessionStorage.removeItem(SNACK_PENDING); } catch { return; }
+  if (!raw) return;
+  try { const { msg, ok } = JSON.parse(raw); snack(msg, ok); } catch { /* noop */ }
+}
+
+function snack(msg, ok = true) {
+  if (!msg) return;
+  const host = snackHost();
+  const item = document.createElement('div');
+  item.className = 'snack';
+  item.dataset.ok = String(ok);
+  const text = document.createElement('span');
+  text.textContent = msg; // textContent, not innerHTML: this carries record names
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'snack__close';
+  close.setAttribute('aria-label', 'Dismiss');
+  close.textContent = '×';
+  const dismiss = () => { clearTimeout(timer); item.remove(); };
+  close.addEventListener('click', dismiss);
+  item.append(text, close);
+  host.appendChild(item);
+  // An error stays until it is read; a success is transient. Someone who needs to
+  // copy a failure message should not be racing a timer to do it.
+  const timer = ok ? setTimeout(dismiss, SNACK_MS) : 0;
+}
+
 function status(form, msg, ok) {
   let s = form.querySelector('.form-status');
   if (!s) { s = document.createElement('p'); s.className = 'form-status'; form.appendChild(s); }
@@ -205,8 +271,22 @@ async function submitForm(form) {
     body: JSON.stringify({ session, screen: location.pathname, surface: 'screen', action: form.dataset.action, payload }),
   });
   if (res.status === 202) {
-    status(form, 'Saved.', true);
+    let reply = '', dismiss = false;
+    try { const b = await res.json(); reply = b.reply || ''; dismiss = !!b.dismiss; } catch { /* noop */ }
+    // `dismiss` means the record has left the surface it was opened on — an archive or
+    // a restore. The row goes over SSE, but the counts beside the title and in the rail
+    // do not, and neither does the "N archived" link. Reload so everything agrees, and
+    // park the sentence so the page that comes back is the one that tells the operator.
+    if (dismiss) {
+      window.grain?.drawer?.close();
+      snackLater(reply || 'Done.', true);
+      location.reload();
+      return;
+    }
+
+    snack(reply || 'Saved.', true);
     if (form.dataset.mode === 'create') form.reset();
+
     // In the drawer, what to do next depends on WHAT was submitted:
     //  - edit of the record the page itself shows → reload (the page behind is stale)
     //  - edit of a record opened from a list      → back to its view panel
@@ -215,8 +295,9 @@ async function submitForm(form) {
     if (form.closest('.drawer')) {
       const path = drawer().dataset.recordPath;
       if (form.dataset.mode === 'edit') {
+        // The reload wipes an on-screen snack, so this one is parked too.
         if (path && location.pathname !== path) loadPanel(path);
-        else location.reload();
+        else { snackLater(reply || 'Saved.', true); location.reload(); }
         return;
       }
       if (!path) window.grain?.drawer?.close();
@@ -224,6 +305,9 @@ async function submitForm(form) {
   } else {
     let msg = 'Error ' + res.status;
     try { const b = await res.json(); if (b.error) msg = b.error; } catch { /* noop */ }
+    // Both: the snackbar is seen wherever you are, the inline status keeps the
+    // message beside the field that caused it.
+    snack(msg, false);
     status(form, msg, false);
   }
 }
@@ -336,3 +420,11 @@ document.addEventListener('input', (e) => {
     });
   }, 200);
 });
+
+// A sentence parked by the page before this one — an archive, a restore, an edit that
+// had to reload. Drained once, on arrival.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', drainSnack, { once: true });
+} else {
+  drainSnack();
+}

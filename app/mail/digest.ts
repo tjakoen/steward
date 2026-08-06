@@ -20,6 +20,22 @@ import {
 // The k/v table, following the doctrine 0006 set for the Google tokens: the secret
 // is never audited, never rendered back to the page and never in a URL.
 
+/**
+ * Google displays an app password as four groups of four — `abcd efgh ijkl mnop` — and
+ * everybody pastes it that way. Those spaces are presentation: Gmail's SMTP wants the
+ * sixteen characters, and given the spaces it answers
+ * `535 5.7.8 Username and Password not accepted`, which reads exactly like a wrong
+ * password and sends people back to Google to make another one that fails the same way.
+ *
+ * So the spaces come out — but ONLY when what is left is the app-password shape, sixteen
+ * letters. Any other secret is stored exactly as typed, because a real SMTP password is
+ * allowed to contain a space and silently eating it would be the worse bug.
+ */
+export function normalisePassword(raw: string): string {
+  const squeezed = raw.replace(/\s+/g, '');
+  return /^[a-z]{16}$/i.test(squeezed) ? squeezed : raw.trim();
+}
+
 export const KEYS = {
   enabled: 'digest.enabled',
   time: 'digest.time',
@@ -49,6 +65,14 @@ export interface DigestSettings {
   from: string;
   /** Whether a password is stored. Never the password itself. */
   hasPassword: boolean;
+  /**
+   * Enough shape to diagnose a rejected login WITHOUT showing the secret: how long it is,
+   * and whether it is the sixteen-letter Gmail app-password shape. A `535` against Gmail
+   * is almost always an account password or a copied-with-spaces one, and neither is
+   * distinguishable from a genuinely wrong password unless the card says something.
+   */
+  passwordLength: number;
+  passwordLooksLikeAppPassword: boolean;
   lastSentOn: string;
   lastResult: string;
 }
@@ -57,6 +81,7 @@ const s = (v: string | null): string => (v ?? '').trim();
 
 export function readSettings(settings: SettingsRepository): DigestSettings {
   const user = s(settings.get(KEYS.user));
+  const pw = settings.get(KEYS.password) ?? '';
   return {
     enabled: s(settings.get(KEYS.enabled)) === '1',
     time: s(settings.get(KEYS.time)) || DEFAULT_TIME,
@@ -67,7 +92,9 @@ export function readSettings(settings: SettingsRepository): DigestSettings {
     // An empty From means "the account you authenticate as", which is what almost
     // every operator means and what almost every host requires anyway.
     from: s(settings.get(KEYS.from)) || user,
-    hasPassword: s(settings.get(KEYS.password)) !== '',
+    hasPassword: pw !== '',
+    passwordLength: pw.length,
+    passwordLooksLikeAppPassword: /^[a-z]{16}$/i.test(pw),
     lastSentOn: s(settings.get(KEYS.lastSentOn)),
     lastResult: s(settings.get(KEYS.lastResult)),
   };

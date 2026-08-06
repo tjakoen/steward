@@ -36,6 +36,13 @@ export interface StewardResult {
   reply?: string;
   error?: string;
   data?: unknown;
+  /**
+   * The record has left the surface it was being edited on, so a panel showing it is now
+   * stale and should close. Archiving is the case that made this necessary: the row is
+   * removed from the list underneath while the drawer sits there displaying a record that
+   * is no longer in the list it was opened from.
+   */
+  dismiss?: boolean;
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
@@ -340,6 +347,7 @@ export function dispatchSteward(
             reply: archived
               ? `Archived ${name}.${took}${files} It can be restored.`
               : `Restored ${name}.${files}`,
+            dismiss: true,
             data: rec };
         });
       }

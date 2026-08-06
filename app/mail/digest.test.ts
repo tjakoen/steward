@@ -5,7 +5,9 @@ import { sqliteRepositories } from '../repo/sqlite.ts';
 import { makeServices } from '../services/index.ts';
 import type { Repositories } from '../repo/ports.ts';
 import type { TicketStatus } from '../domain/types.ts';
-import { buildWorkspace, KEYS, parseTime, readSettings, sendDigest, smtpConfig } from './digest.ts';
+import {
+  buildWorkspace, KEYS, normalisePassword, parseTime, readSettings, sendDigest, smtpConfig,
+} from './digest.ts';
 
 const TODAY = '2026-08-03';
 
@@ -204,4 +206,22 @@ test('an empty From falls back to the account that authenticates', () => {
   const { repos } = seed([]);
   repos.settings.set(KEYS.user, 'me@example.com');
   expect(readSettings(repos.settings).from).toBe('me@example.com');
+});
+
+// A Gmail app password is displayed as four groups of four and pasted that way. The
+// spaces make Gmail answer `535 5.7.8 Username and Password not accepted`, which is
+// indistinguishable from a wrong password — this is the bug that produced exactly that.
+test('an app password pasted with its display spaces is stored without them', () => {
+  expect(normalisePassword('abcd efgh ijkl mnop')).toBe('abcdefghijklmnop');
+  expect(normalisePassword('  abcd efgh ijkl mnop  ')).toBe('abcdefghijklmnop');
+  expect(normalisePassword('abcdefghijklmnop')).toBe('abcdefghijklmnop');
+});
+
+test('anything that is not the app-password shape keeps its spaces', () => {
+  // A real SMTP password may legitimately contain one, and eating it silently would
+  // be the worse bug — a login that fails for a reason nothing on screen explains.
+  expect(normalisePassword('correct horse battery staple')).toBe('correct horse battery staple');
+  expect(normalisePassword('s3cret with space')).toBe('s3cret with space');
+  // Sixteen characters but not letters: not the shape, so left alone.
+  expect(normalisePassword('abcd 1234 efgh 5678')).toBe('abcd 1234 efgh 5678');
 });

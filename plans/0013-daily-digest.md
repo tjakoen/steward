@@ -368,3 +368,29 @@ due-check returns `unconfigured`.
   kind of thing `tsc` cannot see: five cells fit at A4, the Waiting callout is unmoved, a
   two-line customer name wraps inside its own cell without pushing the row, and a short ticket
   is still one page with `Page 1 of 1` in the margin.
+
+## The 535 that was our fault (2026-08-06)
+
+The first real send failed:
+
+```
+535 5.7.8 Username and Password not accepted
+```
+
+That reads as a wrong password and sends people back to Google to mint another one, which
+fails identically. It was not a wrong password. **Google displays an app password as four
+groups of four — `abcd efgh ijkl mnop` — and everybody pastes it that way.** The spaces are
+presentation; Gmail's SMTP wants the sixteen characters. STEWARD stored what was pasted,
+`.trim()` removed the outer whitespace and left the three in the middle, and `AUTH PLAIN`
+carried them to Google.
+
+`normalisePassword` (`app/mail/digest.ts`) strips whitespace — but only when what is left is
+the app-password shape, sixteen letters. Any other secret is stored exactly as typed, because
+a real SMTP password may legitimately contain a space and silently eating it would be the
+worse bug: a login that fails for a reason nothing on screen explains.
+
+The Settings card also had no way to say anything useful about a stored secret. It now reports
+the **shape, never the value** — the length, and whether it looks like an app password — and
+when the host is Gmail and it does not, it says so and links to where to make one. A `535`
+against Gmail is almost always an account password, and that is worth naming rather than
+leaving the operator to guess between four possibilities.

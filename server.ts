@@ -54,8 +54,8 @@ import { documentPrintOptions } from './app/view/doc.ts';
 import { printToPdf, closeBrowser } from './app/pdf/print.ts';
 import { validateLogo, DISPLAY_SIZE, MAX_BYTES as LOGO_MAX_BYTES } from './app/docs/logo.ts';
 import {
-  DEFAULT_PORT as SMTP_PORT, KEYS as DIGEST_KEYS, parseTime, readSettings as readDigestSettings,
-  sendDigest, buildWorkspace,
+  DEFAULT_PORT as SMTP_PORT, KEYS as DIGEST_KEYS, normalisePassword, parseTime,
+  readSettings as readDigestSettings, sendDigest, buildWorkspace,
 } from './app/mail/digest.ts';
 import { digestFor, renderDigestDocument } from './app/view/digest.ts';
 import { sendMail } from './app/mail/smtp.ts';
@@ -894,7 +894,13 @@ const server = listen((port) => Bun.serve({
           });
           if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
           for (const op of result.ops) stream.push(session, OP_EVENT, op);
-          return new Response(null, { status: 202 });
+          // The reply travels back. Every verb has always composed a real sentence —
+          // "Archived Smith, John. 1 ticket went with it." — and the browser threw it
+          // away and printed "Saved." at the foot of a form the operator had already
+          // stopped looking at. `dismiss` says the record has left the surface it was
+          // being edited on, so the drawer should close rather than sit there stale.
+          return Response.json({ reply: result.reply ?? '', dismiss: result.dismiss ?? false },
+            { status: 202 });
         }
 
         // GRAIN vocabulary — fire-and-forget through the interaction layer.
@@ -985,7 +991,7 @@ const server = listen((port) => Bun.serve({
         // the card never renders the stored value back, so an empty box is the
         // normal state of an unchanged form, and treating it as a deletion would
         // wipe the secret every time somebody changed the send time.
-        const password = value('password');
+        const password = normalisePassword(String(form.get('password') ?? ''));
         if (password) repos.settings.set(DIGEST_KEYS.password, password);
         if (form.get('forgetPassword')) repos.settings.remove(DIGEST_KEYS.password);
 
@@ -1587,8 +1593,13 @@ const server = listen((port) => Bun.serve({
               : `<p class="muted">Configured, but the schedule is off. It can still be sent by hand.</p>`;
 
           const row = (name: string, label: string, control: string, help = '') =>
+            rowHtml(name, label, control, esc(help));
+          // Same row, but the hint is trusted markup. Used by the password field alone,
+          // whose diagnosis carries a link and an emphasis — and whose only interpolated
+          // value is a number. Nothing the operator typed reaches it.
+          const rowHtml = (name: string, label: string, control: string, help = '') =>
             `<div class="form-row"><label for="f_d_${esc(name)}">${esc(label)}</label>` +
-            control + (help ? `<span class="sub">${esc(help)}</span>` : '') + `</div>`;
+            control + (help ? `<span class="sub">${help}</span>` : '') + `</div>`;
           const input = (name: string, type: string, value: string, extra = '') =>
             `<input id="f_d_${esc(name)}" name="${esc(name)}" type="${type}" value="${esc(value)}" ${extra}>`;
 
@@ -1612,11 +1623,24 @@ const server = listen((port) => Bun.serve({
               'Implicit TLS only. 587 with STARTTLS is not supported.') +
             row('user', 'Username', input('user', 'text', d.user)) +
             // The one control in STEWARD that must never be seeded from storage.
-            row('password', 'Password', `<input id="f_d_password" name="password" type="password" value="" ` +
+            rowHtml('password', 'Password', `<input id="f_d_password" name="password" type="password" value="" ` +
               `autocomplete="new-password" placeholder="${d.hasPassword ? 'stored — leave blank to keep' : 'app password'}">`,
+              // The shape, never the secret. A 535 from Gmail is almost always an account
+              // password rather than an app password, and without this the card cannot
+              // tell the operator apart from someone who simply typed it wrong.
               d.hasPassword
-                ? 'A password is stored. It is never shown again, never audited and never put in a URL.'
-                : 'For Gmail this is an app password, not the account password.') +
+                ? `A password is stored — ${d.passwordLength} characters, never shown again, ` +
+                  `never audited, never in a URL.` +
+                  (d.host.includes('gmail') && !d.passwordLooksLikeAppPassword
+                    ? ` <strong>It does not look like a Gmail app password</strong>, which is ` +
+                      `16 letters. Gmail refuses account passwords over SMTP with ` +
+                      `<span class="mono">535 5.7.8</span>. Make one at ` +
+                      `<a href="https://myaccount.google.com/apppasswords" target="_blank" ` +
+                      `rel="noopener">myaccount.google.com/apppasswords</a> — 2-Step Verification ` +
+                      `must be on first. Paste it with or without the spaces; they are stripped.`
+                    : '')
+                : 'For Gmail this is an app password, not the account password. ' +
+                  'Spaces are stripped, so paste it exactly as Google shows it.') +
             row('from', 'From', input('from', 'email', d.from), 'Blank means the username above.') +
             `<div class="form-controls"><button type="submit" class="btn" data-variant="soft">Save</button>` +
             (d.hasPassword

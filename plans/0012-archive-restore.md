@@ -312,3 +312,27 @@ is written (`GoogleDriveStore.moveArchived`, `ensureFolder` with a parent, the s
 error is reported in the reply and does **not** undo the archive. But no real file has moved,
 because the verify database was a copy and its Drive documents belong to the original. Archive
 a customer that has a saved PDF on the live database and look in Drive.
+
+## The snackbar, and what archiving exposed about feedback (2026-08-06)
+
+The operator archived a record and the app said **"Saved."** at the foot of a form, inside a
+drawer that stayed open showing a record which had just left the list behind it. Three things
+wrong at once, and all three were older than this plan — archiving only made them obvious.
+
+- **Every verb has always composed a real sentence** — `Archived Smith, John. 1 ticket went
+  with it. 2 files moved in Drive.` — and `/intent` answered `202` with an EMPTY BODY. The
+  browser had nothing to show and printed a constant.
+- **A panel showing a record that is no longer in the list it was opened from is stale.** The
+  result now carries `dismiss`, which archive and restore set, and the drawer closes on it.
+- **The row went over SSE and nothing else moved**: the "6 records" beside the title, the rail
+  counts for Customers *and* Tickets, and the "N archived" link that should now exist were all
+  still describing the previous state. Patching each from the client is a second source of
+  truth that drifts, so a `dismiss` reloads — and the sentence is parked in `sessionStorage`
+  and drained by the page that comes back, so the reload does not eat the confirmation.
+
+The snackbar is one reused live region (`role="status"`, `aria-live="polite"`) — told, not
+focus-stolen. A success clears itself after six seconds; **a failure stays until dismissed**,
+because someone who needs to copy an error should not be racing a timer. Errors also keep the
+inline `.form-status` beside the field that caused them.
+
+GRAIN has no toast, so this is STEWARD's, under STEWARD's own class names.

@@ -76,8 +76,8 @@ test('search does not return archived customers, and the archived scope returns 
   expect(s.searchCustomers('jane')).toHaveLength(1);
   s.setCustomerArchived(jane.id, '2026-08-04T00:00:00.000Z', 'human');
   expect(s.searchCustomers('jane')).toHaveLength(0);
-  expect(s.repos.customers.list(undefined, 'archived').map((c) => c.id)).toEqual([jane.id]);
-  expect(s.repos.customers.list(undefined, 'all')).toHaveLength(2);
+  expect(s.repos.customers.list({ scope: 'archived' }).map((c) => c.id)).toEqual([jane.id]);
+  expect(s.repos.customers.list({ scope: 'all' })).toHaveLength(2);
 });
 
 test('archive and restore write their own audit actions, with a one-key diff', () => {

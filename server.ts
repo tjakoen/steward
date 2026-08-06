@@ -41,13 +41,19 @@ import { dispatchSteward, isStewardAction } from './app/actions/steward.ts';
 import {
   esc, renderForm, customerSchema, clientSchema, customerRow, clientRow, personsLabel,
   ticketSchema, ticketEditSchema, renderBoard, progressList, auditList, auditItem, auditTime,
-  documentChips, fileSize, previewKind, icon, type IconName,
+  auditVerb, documentChips, fileSize, previewKind, icon, type IconName,
+  facetBar, facetChips, facetDate, facetSelect, panelTabs, resolveTab, tableFilteredEmpty,
+  type FacetOption, type PanelTab,
 } from './app/view/html.ts';
 import { OP_EVENT } from '@tjakoen/grain/ai/contract.ts';
 import type {
-  AuditEntity, Client, Customer, DocumentRef, ListScope, Ticket, TicketStatus,
+  AuditAction, AuditEntity, Client, Customer, DocumentRef, DocumentSource, DocumentStorage,
+  ListScope, Ticket, TicketStatus,
 } from './app/domain/types.ts';
 import { TICKET_STATUSES } from './app/domain/types.ts';
+import type {
+  AuditQuery, ClientQuery, CustomerQuery, DocumentQuery, TicketQuery,
+} from './app/repo/ports.ts';
 import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { documentPrintOptions } from './app/view/doc.ts';
@@ -117,8 +123,8 @@ const moveArchivedFiles = async (
   if (!googleAuth.status().connected) return { moved: 0 };
   const customers = entity === 'customer'
     ? [id]
-    : services.repos.customers.list(id, 'all').map((c) => c.id);
-  const tickets = customers.flatMap((c) => services.repos.tickets.list(c, 'all').map((t) => t.id));
+    : services.repos.customers.list({ clientId: id, scope: 'all' }).map((c) => c.id);
+  const tickets = customers.flatMap((c) => services.repos.tickets.list({ customerId: c, scope: 'all' }).map((t) => t.id));
 
   const docs = [
     ...customers.flatMap((c) => services.documentsFor('customer', c)),
@@ -145,9 +151,9 @@ const moveArchivedFiles = async (
  * "neither create nor delete".
  */
 const mirrorData = () => ({
-  clients: services.repos.clients.list('all'),
-  customers: services.repos.customers.list(undefined, 'all'),
-  tickets: services.repos.tickets.list(undefined, 'all'),
+  clients: services.repos.clients.list({ scope: 'all' }),
+  customers: services.repos.customers.list({ scope: 'all' }),
+  tickets: services.repos.tickets.list({ scope: 'all' }),
 });
 
 // ---- the daily digest (0013) ----
@@ -242,6 +248,10 @@ const PAGE_ASSETS =
   // GRAIN's drawer island: open/close, Escape, scrim, and the modal obligations.
   // Loaded BEFORE steward-live.js, which drives it through `window.grain.drawer`.
   '<script type="module" src="/scripts/drawer.js"></script>' +
+  // NOT GRAIN's `scripts/tabs.js`. That one is a localStorage projection of the editor
+  // tabs you have opened; it is opt-in via `data-open-tabs`, and loading it would rewrite
+  // the strip on first paint and delete the panel's tabs. STEWARD borrows the LOOK only.
+  '<script type="module" src="/app/steward-tabs.js"></script>' +
   '<script type="module" src="/app/steward-live.js"></script>' +
   '<script type="module" src="/app/steward-chat.js"></script>';
 
@@ -290,12 +300,32 @@ const navLink = (item: NavItem, path: string): string => {
     `<span class="nav-item__label">${esc(item.label)}</span>${count}</a>`;
 };
 
+/**
+ * The topbar filter box (0014: two filters, layered, with the server as source of truth).
+ *
+ * Typing narrows what is on screen INSTANTLY, which is the half worth keeping and the half
+ * a round trip cannot do. Enter submits `q` to the facet form named by `form` and the
+ * server re-queries — which also gives the box a zero-JS existence for the first time.
+ */
+interface ShellFilter {
+  /** CSS selector the box hides non-matching rows/cards within. */
+  target: string;
+  placeholder?: string;
+  /** `id` of the facet form on the page. The box joins it through the `form` attribute. */
+  form?: string;
+  /** The `q` the server actually ran, so a reload comes back with the box filled. */
+  value?: string;
+  /** Where Clear goes when the `q` is the SERVER's — a text clear cannot undo a query. */
+  clearHref?: string;
+  /** What the facets matched, out of the whole, when any are live. */
+  counts?: { matched: number; total: number };
+}
+
 interface ShellOpts {
   path: string;
   crumbs?: string;
   actions?: string;
-  /** CSS selector the topbar filter box hides non-matching rows/cards within */
-  filter?: { target: string; placeholder?: string };
+  filter?: ShellFilter;
   /** a create/edit form shown in the slide-in drawer, opened by a "+ New" button */
   drawer?: { title: string; body: string };
 }
@@ -315,11 +345,30 @@ function shell(title: string, body: string, opts: ShellOpts): string {
   // running total lets a filtered list be read as the whole one.
   // GRAIN's topbar-search ships the BOX only — that the typing hides rows is
   // STEWARD's, wired to the input in steward-live.js, exactly as topbar.md says.
-  const filterbar = opts.filter
-    ? `<div class="topbar-search filter-box"><input type="search" data-filter="${esc(opts.filter.target)}" ` +
-      `placeholder="${esc(opts.filter.placeholder ?? 'Filter…')}" aria-label="Filter">` +
-      `<button type="button" class="linkish filter-clear" data-filter-clear hidden>Clear</button></div>` +
-      `<span class="filter-note" data-filter-note role="status"></span>`
+  //
+  // `form="…"` is the whole trick that lets one box be both: the input sits in the topbar
+  // region and its form owner is the facet bar down in the pane, so Enter submits a GET and
+  // the URL gains `?q=…`, while `data-filter` goes on doing the instant narrowing.
+  //
+  // When the `q` came from the SERVER, Clear is a LINK to the same URL without it. A text
+  // clear only unhides rows the server sent, and a control labelled Clear that leaves the
+  // list filtered is worse than no control at all.
+  const f = opts.filter;
+  const filterbar = f
+    ? `<div class="topbar-search filter-box"><input type="search" data-filter="${esc(f.target)}"` +
+      (f.form ? ` name="q" form="${esc(f.form)}"` : '') +
+      ` value="${esc(f.value ?? '')}"` +
+      ` placeholder="${esc(f.placeholder ?? 'Filter…')}" aria-label="Filter">` +
+      (f.value && f.clearHref
+        ? `<a class="linkish filter-clear" href="${esc(f.clearHref)}">Clear</a>`
+        : `<button type="button" class="linkish filter-clear" data-filter-clear hidden>Clear</button>`) +
+      `</div>` +
+      `<span class="filter-note" data-filter-note role="status"` +
+      (f.counts ? ` data-filter-matched="${f.counts.matched}" data-filter-total="${f.counts.total}"` : '') +
+      `>${f.counts ? esc(`${f.counts.matched} of ${f.counts.total} match the filters`) : ''}</span>` +
+      // Rendered only when facets are live, which is what makes its presence the client's
+      // test for "this list is server-filtered" — see applyOp in steward-live.js.
+      (f.counts ? `<span class="filter-stale" data-filter-stale role="status" hidden></span>` : '')
     : '';
   const themeToggle = `<button type="button" class="btn topbar__btn" data-toggle-scheme aria-label="Toggle light/dark" title="Toggle light/dark">◐</button>`;
   // NOT `data-drawer-open`: GRAIN's own opener would fire first and open the
@@ -543,21 +592,114 @@ function logoSection(c: Client): string {
 const archivedBadge = (archivedAt: string | null): string[] =>
   archivedAt ? [`<span class="badge badge-archived">Archived</span>`] : [];
 
+// ---- reading a filtered list out of a URL (0014) ----------------------------
+// A filter that is a URL is a filter you can send, bookmark, reload into and hand to the
+// AI — GRAIN's dispatcher already validates and performs `navigate`, so `/tickets?status=
+// Waiting` is reachable by the reasoner the moment it exists, with no new action and no
+// new surface kind. A DOM state nobody can name is reachable by nothing.
+
+const params = (req: Request): URLSearchParams => new URL(req.url).searchParams;
+
 /**
- * `?archived=1` — the door to what is otherwise invisible by construction (0012).
+ * How many audit rows `/activity` renders at once.
  *
- * Deliberately the cheap version. Real filtering is 0014's job and archived-versus-live is
- * one facet among several there; building a filter framework here would be 0014 arriving
- * early and badly. The repository read already takes the scope, so 0014 absorbs this.
+ * Still a cap — nothing in STEWARD is paginated and this plan deliberately does not add
+ * pagination — but it is now applied AFTER the predicate rather than before it, and the
+ * page says how many rows the predicate matched as well as how many it is showing.
  */
-const archivedScope = (req: Request): ListScope =>
-  new URL(req.url).searchParams.get('archived') ? 'archived' : 'live';
+const ACTIVITY_LIMIT = 200;
+
+/** One value, trimmed. Empty means "no filter", which is not the same as "matches nothing". */
+const one = (p: URLSearchParams, key: string): string => (p.get(key) ?? '').trim();
+
+/** `?status=Waiting&status=Completed` — repeated keys, which is what a checkbox group posts. */
+const many = (p: URLSearchParams, key: string): string[] =>
+  p.getAll(key).map((v) => v.trim()).filter(Boolean);
+
+/**
+ * The same URL with one parameter taken off.
+ *
+ * What "Clear" means beside the text box: the box owns `q` and nothing else, so clearing it
+ * must not silently throw away the facets the operator also set.
+ */
+const without = (req: Request, key: string): string => {
+  const url = new URL(req.url);
+  url.searchParams.delete(key);
+  const rest = url.searchParams.toString();
+  return url.pathname + (rest ? `?${rest}` : '');
+};
+
+/** Only values from a published list reach a query. Anything else is dropped, not 400'd. */
+const only = <T extends string>(values: string[], allowed: readonly T[]): T[] =>
+  values.filter((v): v is T => (allowed as readonly string[]).includes(v));
+
+/**
+ * The scope facet — and 0012's `?archived=1` kept alive as an alias.
+ *
+ * 0012 shipped `/clients?archived=1` as "deliberately the cheap version… the repository read
+ * already takes the scope, so 0014 absorbs this". This is the absorbing: `?scope=archived`
+ * is one value of one facet, the old URL still resolves so nothing that was linked breaks,
+ * and there is no second route.
+ */
+const scopeOf = (p: URLSearchParams): ListScope => {
+  const v = one(p, 'scope');
+  if (v === 'live' || v === 'archived' || v === 'all') return v;
+  return p.get('archived') ? 'archived' : 'live';
+};
+
+const SCOPE_OPTIONS: FacetOption[] = [
+  { value: 'live', label: 'Live' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'all', label: 'All' },
+];
+const scopeFacet = (scope: ListScope): string =>
+  facetChips('scope', 'Show', SCOPE_OPTIONS, [scope], false);
+
+/** The clients a facet can offer, by name. `'all'` — an archived client still has records. */
+const clientOptions = (): FacetOption[] =>
+  services.repos.clients.list({ scope: 'all' }).map((c) => ({ value: c.id, label: c.name }));
+
+/**
+ * Is anything actually narrowing this list?
+ *
+ * `scope=live` is the DEFAULT, not a filter, so a bare `/clients` and `/clients?scope=live`
+ * must answer the same — otherwise the page claims to be filtered by the absence of a
+ * filter, and the Clear control appears with nothing to clear.
+ */
+const isFiltered = (q: object): boolean =>
+  Object.entries(q).some(([k, v]) => {
+    if (v === undefined || v === '' || (Array.isArray(v) && !v.length)) return false;
+    return !(k === 'scope' && v === 'live');
+  });
+
+/** "12 of 47 clients" while a facet narrows it; "47 clients" when nothing does. */
+const countLabel = (shown: number, total: number, singular: string, plural: string): string =>
+  shown === total
+    ? `${total} ${total === 1 ? singular : plural}`
+    : `${shown} of ${total} ${plural}`;
+
+/**
+ * A list's `<tbody>`: the rows, the "nothing matched what you typed" row, or — when the
+ * server itself returned nothing — a sentence about why.
+ *
+ * The two empty states are genuinely different questions. "No clients yet" and "no client
+ * matches these filters" want different answers and only one of them is the operator's
+ * fault, so the second one names the way out instead of implying an empty workspace.
+ */
+function tableBody(rows: string, colspan: number, empty: string, filtered: boolean, clearHref: string): string {
+  if (rows) return rows + tableFilteredEmpty(colspan);
+  const text = filtered
+    ? `Nothing matches these filters. <a href="${esc(clearHref)}">Clear them</a> to see the whole list.`
+    : esc(empty);
+  return `<tr class="data-table__empty"><td colspan="${colspan}">${text}</td></tr>`;
+}
 
 /** The way in and back out, shown only when there is something to see. */
 const archivedLink = (path: string, scope: ListScope, archivedCount: number): string => {
   if (scope === 'archived') return `<p class="panel-meta"><a href="${path}">← Back to the live list</a></p>`;
   if (!archivedCount) return '';
-  return `<p class="panel-meta"><a href="${path}?archived=1">${archivedCount} archived</a></p>`;
+  // A pre-set facet URL now, not a route of its own — one predicate, one control.
+  return `<p class="panel-meta"><a href="${path}?scope=archived">${archivedCount} archived</a></p>`;
 };
 
 /**
@@ -595,51 +737,110 @@ function archiveSection(entity: 'client' | 'customer', id: string, archivedAt: s
   );
 }
 
-function clientPanel(c: Client, inDrawer = false, notice = ''): string {
+/**
+ * How a panel is asked for. ONE object rather than a queue of positionals, and — this is
+ * the part that matters — `tab` is NOT a second axis on `inDrawer`.
+ *
+ * The panes are the same in both places. The drawer is a 28rem column and the page is
+ * wide, and that is a CSS problem: `.tab-bar` already scrolls with an edge fade, so four
+ * tabs in 28rem degrade correctly with nothing to write. Forking the builder per surface
+ * is exactly the drift the comment above these functions exists to prevent.
+ */
+interface PanelOpts {
+  inDrawer?: boolean;
+  notice?: string;
+  /** `?tab=`. An unknown value falls back to the first tab rather than showing no pane. */
+  tab?: string | null;
+}
+
+/**
+ * The full-page URL for a panel, carrying the tab the operator is looking at.
+ *
+ * The default tab is what a bare URL already means, so it is never spelled out — nobody
+ * needs `?tab=details` in front of them for having touched nothing.
+ */
+const tabbedHref = (base: string, tabs: PanelTab[], active: string): string =>
+  active && active !== tabs[0]?.id ? `${base}?tab=${encodeURIComponent(active)}` : base;
+
+function clientPanel(c: Client, opts: PanelOpts = {}): string {
   // `'all'` on an archived client's own page: its customers are hidden from the LISTS by
   // descent, but the record you are looking at is exactly where you need to see them.
-  const customers = services.repos.customers.list(c.id, c.archivedAt ? 'all' : 'live');
+  const customers = services.repos.customers.list({ clientId: c.id, scope: c.archivedAt ? 'all' : 'live' });
+  // Every pane is rendered server-side in this one response; tabs do not lazy-load. A
+  // route per section would fork the single builder, and the content is not expensive —
+  // `audit.forEntity` and `documentsFor` are indexed reads against a local file, which the
+  // panel already performed on every open. A larger fragment over localhost is not a cost.
+  const tabs: PanelTab[] = [
+    { id: 'details', label: 'Details', body:
+      `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
+      logoSection(c) +
+      `<h3 class="section-title">Customers</h3>` +
+      chips(customers.map((x) => ({ href: `/customers/${x.id}`, label: personsLabel(x) })), 'No customers yet.') },
+    { id: 'documents', label: 'Documents', body: documentsSection('client', c.id) },
+    { id: 'history', label: 'History', body: historySection('client', c.id) },
+  ];
+  const active = resolveTab(tabs, opts.tab);
   return (
     `<div data-panel-title="${esc(c.name)}">` +
-    notice +
+    (opts.notice ?? '') +
+    // The meta strip stays ABOVE the tablist: it is the record's identity, not a section
+    // of it, and burying it in Details would hide "which record am I on" behind a click.
     panelMeta([...archivedBadge(c.archivedAt),
       `<span class="swatch" style="background:${esc(c.branding.primaryColor)}"></span><span class="mono">${esc(c.code)}</span>`,
       `${customers.length} customer${customers.length === 1 ? '' : 's'}`]) +
-    `<div data-surface="client-detail">${renderForm(clientSchema('client.update'), 'view', clientValues(c))}</div>` +
-    logoSection(c) +
-    `<h3 class="section-title">Customers</h3>` +
-    chips(customers.map((x) => ({ href: `/customers/${x.id}`, label: personsLabel(x) })), 'No customers yet.') +
-    documentsSection('client', c.id) +
-    historySection('client', c.id) +
+    panelTabs(`client-${esc(c.id)}`, tabs, active) +
+    // Archiving takes the record out of every list; it belongs to the whole record rather
+    // than to any one section, so it sits below the tabs where it is always reachable.
     archiveSection('client', c.id, c.archivedAt) +
-    fullPageLink(`/clients/${esc(c.id)}`, inDrawer) +
+    fullPageLink(tabbedHref(`/clients/${esc(c.id)}`, tabs, active), opts.inDrawer ?? false) +
     `</div>`
   );
 }
 
-function customerPanel(c: Customer, inDrawer = false): string {
+function customerPanel(c: Customer, opts: PanelOpts = {}): string {
   const clients = services.repos.clients.list();
   const client = services.repos.clients.get(c.clientId);
-  const tickets = services.repos.tickets.list(c.id, c.archivedAt ? 'all' : 'live');
+  const tickets = services.repos.tickets.list({ customerId: c.id, scope: c.archivedAt ? 'all' : 'live' });
+  const tabs: PanelTab[] = [
+    { id: 'details', label: 'Details', body:
+      `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>` +
+      `<h3 class="section-title">Tickets</h3>` +
+      chips(tickets.map((t) => ({ href: `/tickets/${t.id}`, label: `${t.ticketId} · ${t.title}` })), 'No tickets yet.') },
+    { id: 'documents', label: 'Documents', body: documentsSection('customer', c.id) },
+    { id: 'history', label: 'History', body: historySection('customer', c.id) },
+  ];
+  const active = resolveTab(tabs, opts.tab);
   return (
     `<div data-panel-title="${esc(personsLabel(c))}">` +
+    // Lineage stays above the tablist for the same reason the meta strip does: it is the
+    // answer to "where am I", and that should never be behind a click.
     lineage([client ? clientLink(client) : '', `<strong>${esc(personsLabel(c))}</strong>`].filter(Boolean)) +
     panelMeta([...archivedBadge(c.archivedAt), `<span class="mono">${esc(c.code)}</span>`,
       `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`]) +
-    `<div data-surface="customer-detail">${renderForm(customerSchema(clients, 'customer.update'), 'view', customerValues(c))}</div>` +
-    `<h3 class="section-title">Tickets</h3>` +
-    chips(tickets.map((t) => ({ href: `/tickets/${t.id}`, label: `${t.ticketId} · ${t.title}` })), 'No tickets yet.') +
-    documentsSection('customer', c.id) +
-    historySection('customer', c.id) +
+    panelTabs(`customer-${esc(c.id)}`, tabs, active) +
     archiveSection('customer', c.id, c.archivedAt) +
-    fullPageLink(`/customers/${esc(c.id)}`, inDrawer) +
+    fullPageLink(tabbedHref(`/customers/${esc(c.id)}`, tabs, active), opts.inDrawer ?? false) +
     `</div>`
   );
 }
 
-function ticketPanel(t: Ticket, inDrawer = false): string {
+function ticketPanel(t: Ticket, opts: PanelOpts = {}): string {
   const customer = services.repos.customers.get(t.customerId);
   const client = customer ? services.repos.clients.get(customer.clientId) : null;
+  const tabs: PanelTab[] = [
+    { id: 'details', label: 'Details', body:
+      `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` },
+    { id: 'progress', label: 'Progress', body:
+      progressList(t) +
+      `<form class="fb" data-action="ticket.progress" data-mode="create">` +
+      `<input type="hidden" name="id" value="${esc(t.id)}" />` +
+      `<div class="form-row"><label for="f_update">Add update</label>` +
+      `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
+      `<div class="form-controls"><button type="submit" class="btn">Log</button></div></form>` },
+    { id: 'documents', label: 'Documents', body: documentsSection('ticket', t.id) },
+    { id: 'history', label: 'History', body: historySection('ticket', t.id) },
+  ];
+  const active = resolveTab(tabs, opts.tab);
   return (
     `<div data-panel-title="${esc(t.title)}">` +
     lineage([client ? clientLink(client) : '', customer ? customerLink(customer) : '',
@@ -650,16 +851,8 @@ function ticketPanel(t: Ticket, inDrawer = false): string {
       // as a document of THIS ticket rather than silently filing every preview.
       `<form method="post" action="/tickets/${esc(t.id)}/pdf/save" class="inline">` +
       `<button type="submit" class="linkish">Save PDF to documents</button></form>`]) +
-    `<div data-surface="ticket-detail">${renderForm(ticketEditSchema(), 'view', ticketValues(t))}</div>` +
-    `<h3 class="section-title">Progress log</h3>${progressList(t)}` +
-    `<form class="fb" data-action="ticket.progress" data-mode="create">` +
-    `<input type="hidden" name="id" value="${esc(t.id)}" />` +
-    `<div class="form-row"><label for="f_update">Add update</label>` +
-    `<textarea id="f_update" name="update" placeholder="What happened"></textarea></div>` +
-    `<div class="form-controls"><button type="submit" class="btn">Log</button></div></form>` +
-    documentsSection('ticket', t.id) +
-    historySection('ticket', t.id) +
-    fullPageLink(`/tickets/${esc(t.id)}`, inDrawer) +
+    panelTabs(`ticket-${esc(t.id)}`, tabs, active) +
+    fullPageLink(tabbedHref(`/tickets/${esc(t.id)}`, tabs, active), opts.inDrawer ?? false) +
     `</div>`
   );
 }
@@ -1085,19 +1278,32 @@ const server = listen((port) => Bun.serve({
     // --- CRM surfaces (data-driven) ---
     '/clients': {
       GET: (req: Request) => {
-        const scope = archivedScope(req);
-        const clients = services.repos.clients.list(scope);
-        const rows = clients.map(clientRow).join('')
-          || `<tr class="data-table__empty"><td colspan="3">${scope === 'archived' ? 'Nothing archived.' : 'No clients yet.'}</td></tr>`;
-        return layout(scope === 'archived' ? 'Archived clients' : 'Clients',
-          `<div class="page-head"><h1>${scope === 'archived' ? 'Archived clients' : 'Clients'}</h1>` +
-          `<span class="sub">${clients.length} records</span></div>` +
-          archivedLink('/clients', scope, services.repos.clients.list('archived').length) +
+        const p = params(req);
+        const query: ClientQuery = { scope: scopeOf(p), q: one(p, 'q') || undefined };
+        const clients = services.repos.clients.list(query);
+        // The whole, for the note: "12 of 47" is only honest if the 47 is the same
+        // question with the filters taken off.
+        const total = services.repos.clients.list({ scope: 'all' }).length;
+        const filtered = isFiltered(query);
+        const archived = query.scope === 'archived';
+        const title = archived ? 'Archived clients' : 'Clients';
+        // A client has a name, a code and branding — there is little else to facet on.
+        const facets = facetBar('facets', '/clients', scopeFacet(query.scope ?? 'live'), filtered);
+        return layout(title,
+          `<div class="page-head"><h1>${title}</h1>` +
+          `<span class="sub">${countLabel(clients.length, total, 'client', 'clients')}</span></div>` +
+          archivedLink('/clients', query.scope ?? 'live', services.repos.clients.list({ scope: 'archived' }).length) +
+          facets +
           `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Code</th><th>Company info</th></tr></thead>` +
-          `<tbody class="rows" data-surface="client-list">${rows}</tbody></table></div>`,
+          `<tbody class="rows" data-surface="client-list">` +
+          tableBody(clients.map(clientRow).join(''), 3,
+            archived ? 'Nothing archived.' : 'No clients yet.', filtered, '/clients') +
+          `</tbody></table></div>`,
           { path: '/clients',
-            filter: { target: '[data-surface="client-list"]', placeholder: 'Filter clients…' },
+            filter: { target: '[data-surface="client-list"]', placeholder: 'Filter clients…',
+              form: 'facets', value: query.q, clearHref: without(req, 'q'),
+              counts: filtered ? { matched: clients.length, total } : undefined },
             drawer: { title: 'New client', body: renderForm(clientSchema(), 'create') } });
       },
     },
@@ -1115,7 +1321,7 @@ const server = listen((port) => Bun.serve({
         return layout(c.name,
           `<a class="back-link" href="/clients">← Clients</a>` +
           `<div class="page-head"><h1>${esc(c.name)}</h1></div>` +
-          `<div class="panel"><div class="panel__body">${clientPanel(c, false, notice)}</div></div>`,
+          `<div class="panel"><div class="panel__body">${clientPanel(c, { notice, tab: one(params(req), 'tab') })}</div></div>`,
           { path: '/clients', crumbs: `<a href="/clients">Clients</a> / <strong>${esc(c.name)}</strong>` });
       },
     },
@@ -1152,7 +1358,9 @@ const server = listen((port) => Bun.serve({
       GET: (req) => {
         const id = (req as unknown as { params: { id: string } }).params.id;
         const c = services.repos.clients.get(id);
-        return c ? fragment(clientPanel(c, true)) : new Response('Not found', { status: 404 });
+        return c
+          ? fragment(clientPanel(c, { inDrawer: true, tab: one(params(req), 'tab') }))
+          : new Response('Not found', { status: 404 });
       },
     },
     '/clients/:id/edit': {
@@ -1166,21 +1374,39 @@ const server = listen((port) => Bun.serve({
     },
     '/customers': {
       GET: (req: Request) => {
-        const scope = archivedScope(req);
+        const p = params(req);
+        const query: CustomerQuery = {
+          scope: scopeOf(p),
+          // "Show me this client's customers" is the question the client detail page already
+          // answers by hand; this gives it an address.
+          clientId: one(p, 'clientId') || undefined,
+          q: one(p, 'q') || undefined,
+        };
         const clients = services.repos.clients.list();
-        const customers = services.repos.customers.list(undefined, scope);
-        const rows = customers.map(customerRow).join('')
-          || `<tr class="data-table__empty"><td colspan="3">${scope === 'archived' ? 'Nothing archived.' : 'No customers yet.'}</td></tr>`;
+        const customers = services.repos.customers.list(query);
+        const total = services.repos.customers.list({ scope: 'all' }).length;
+        const filtered = isFiltered(query);
+        const scope = query.scope ?? 'live';
+        const title = scope === 'archived' ? 'Archived customers' : 'Customers';
         const note = clients.length ? '' : `<p class="muted">Create a client first.</p>`;
-        return layout(scope === 'archived' ? 'Archived customers' : 'Customers',
-          `<div class="page-head"><h1>${scope === 'archived' ? 'Archived customers' : 'Customers'}</h1>` +
-          `<span class="sub">${customers.length} records</span></div>` +
-          archivedLink('/customers', scope, services.repos.customers.list(undefined, 'archived').length) +
+        return layout(title,
+          `<div class="page-head"><h1>${title}</h1>` +
+          `<span class="sub">${countLabel(customers.length, total, 'customer', 'customers')}</span></div>` +
+          archivedLink('/customers', scope, services.repos.customers.list({ scope: 'archived' }).length) +
+          facetBar('facets', '/customers',
+            scopeFacet(scope) +
+            facetSelect('clientId', 'Client', clientOptions(), query.clientId ?? '', 'All clients'),
+            filtered) +
           `<div class="panel"><table class="data-table dtable">` +
           `<thead><tr><th>Name</th><th>Code</th><th>Email</th></tr></thead>` +
-          `<tbody class="rows" data-surface="customer-list">${rows}</tbody></table></div>${note}`,
+          `<tbody class="rows" data-surface="customer-list">` +
+          tableBody(customers.map(customerRow).join(''), 3,
+            scope === 'archived' ? 'Nothing archived.' : 'No customers yet.', filtered, '/customers') +
+          `</tbody></table></div>${note}`,
           { path: '/customers',
-            filter: { target: '[data-surface="customer-list"]', placeholder: 'Filter customers…' },
+            filter: { target: '[data-surface="customer-list"]', placeholder: 'Filter customers…',
+              form: 'facets', value: query.q, clearHref: without(req, 'q'),
+              counts: filtered ? { matched: customers.length, total } : undefined },
             drawer: clients.length ? { title: 'New customer', body: renderForm(customerSchema(clients), 'create') } : undefined });
       },
     },
@@ -1192,7 +1418,7 @@ const server = listen((port) => Bun.serve({
         return layout(personsLabel(c),
           `<a class="back-link" href="/customers">← Customers</a>` +
           `<div class="page-head"><h1>${esc(personsLabel(c))}</h1></div>` +
-          `<div class="panel"><div class="panel__body">${customerPanel(c)}</div></div>`,
+          `<div class="panel"><div class="panel__body">${customerPanel(c, { tab: one(params(req), 'tab') })}</div></div>`,
           { path: '/customers', crumbs: `<a href="/customers">Customers</a> / <strong>${esc(personsLabel(c))}</strong>` });
       },
     },
@@ -1200,7 +1426,9 @@ const server = listen((port) => Bun.serve({
       GET: (req) => {
         const id = (req as unknown as { params: { id: string } }).params.id;
         const c = services.repos.customers.get(id);
-        return c ? fragment(customerPanel(c, true)) : new Response('Not found', { status: 404 });
+        return c
+          ? fragment(customerPanel(c, { inDrawer: true, tab: one(params(req), 'tab') }))
+          : new Response('Not found', { status: 404 });
       },
     },
     '/customers/:id/edit': {
@@ -1216,15 +1444,50 @@ const server = listen((port) => Bun.serve({
 
     // --- Ticket surfaces (kanban board + detail) ---
     '/tickets': {
-      GET: () => {
-        const tickets = services.repos.tickets.list();
+      GET: (req: Request) => {
+        const p = params(req);
+        const query: TicketQuery = {
+          scope: scopeOf(p),
+          clientId: one(p, 'clientId') || undefined,
+          customerId: one(p, 'customerId') || undefined,
+          status: only(many(p, 'status'), TICKET_STATUSES),
+          q: one(p, 'q') || undefined,
+        };
+        const tickets = services.repos.tickets.list(query);
+        const total = services.repos.tickets.list({ scope: 'all' }).length;
+        const filtered = isFiltered(query);
         const customers = services.repos.customers.list();
         const board = renderBoard(tickets, ticketLabeler());
         const note = customers.length ? '' : `<p class="muted">Create a customer first.</p>`;
+        // Status is the facet that earns counts, and counting is the reason facets are a
+        // server round trip at all: "Waiting (7)" cannot be computed from rows the page
+        // never received. The counts are taken with every OTHER facet applied and status
+        // itself ignored — a facet that counted only what it had already filtered would
+        // read "Waiting (7) · Completed (0)" while showing seven waiting tickets.
+        const byStatus = services.repos.tickets.byStatus({ ...query, status: [] });
+        const statusOptions: FacetOption[] = TICKET_STATUSES.map((s) => ({
+          value: s, label: s, count: (byStatus[s] ?? []).length,
+        }));
         return layout('Tickets',
-          `<div class="page-head"><h1>Tickets</h1><span class="sub">${tickets.length} tickets</span></div>${board}${note}`,
+          `<div class="page-head"><h1>Tickets</h1>` +
+          // The pair, stated. Under server-side facets a column's count is ALREADY the
+          // filtered count, and a page head saying "42 tickets" over four columns adding
+          // up to seven is the same dishonesty `.filter-note` was invented to fix.
+          `<span class="sub">${countLabel(tickets.length, total, 'ticket', 'tickets')}</span></div>` +
+          facetBar('facets', '/tickets',
+            scopeFacet(query.scope ?? 'live') +
+            facetChips('status', 'Status', statusOptions, query.status ?? []) +
+            facetSelect('clientId', 'Client', clientOptions(), query.clientId ?? '', 'All clients') +
+            facetSelect('customerId', 'Customer',
+              services.repos.customers.list({ scope: 'all', clientId: query.clientId })
+                .map((c) => ({ value: c.id, label: personsLabel(c) })),
+              query.customerId ?? '', 'All customers'),
+            filtered) +
+          board + note,
           { path: '/tickets',
-            filter: { target: '.kanban', placeholder: 'Filter tickets…' },
+            filter: { target: '.kanban', placeholder: 'Filter tickets…',
+              form: 'facets', value: query.q, clearHref: without(req, 'q'),
+              counts: filtered ? { matched: tickets.length, total } : undefined },
             drawer: customers.length ? { title: 'New ticket', body: renderForm(ticketSchema(customers), 'create') } : undefined });
       },
     },
@@ -1237,7 +1500,7 @@ const server = listen((port) => Bun.serve({
         return layout(t.title,
           `<a class="back-link" href="/tickets">← Board</a>` +
           `<div class="page-head"><h1>${esc(t.title)}</h1></div>` +
-          `<div class="panel"><div class="panel__body">${ticketPanel(t)}</div></div>`,
+          `<div class="panel"><div class="panel__body">${ticketPanel(t, { tab: one(params(req), 'tab') })}</div></div>`,
           { path: '/tickets', crumbs: `<a href="/tickets">Tickets</a> / <strong>${esc(t.title)}</strong>`, actions: pdfBtn });
       },
     },
@@ -1245,7 +1508,9 @@ const server = listen((port) => Bun.serve({
       GET: (req) => {
         const id = (req as unknown as { params: { id: string } }).params.id;
         const t = services.repos.tickets.get(id);
-        return t ? fragment(ticketPanel(t, true)) : new Response('Not found', { status: 404 });
+        return t
+          ? fragment(ticketPanel(t, { inDrawer: true, tab: one(params(req), 'tab') }))
+          : new Response('Not found', { status: 404 });
       },
     },
     '/tickets/:id/pdf': {
@@ -1353,23 +1618,54 @@ const server = listen((port) => Bun.serve({
 
     // --- Files (documents: the manager, previews, bytes) ---
     '/files': {
-      GET: () => {
-        const docs = services.listDocuments();
+      GET: (req: Request) => {
+        const p = params(req);
+        // No scope facet, and that is 0012's decision rather than an omission: "the
+        // documents are still real files in Drive; a document list that silently shortens
+        // is worse than one that shows where a file came from."
+        const query: DocumentQuery = {
+          source: only<DocumentSource>(many(p, 'source'), ['upload', 'generated', 'link']),
+          storage: only<DocumentStorage>(many(p, 'storage'), ['local', 'drive']),
+          q: one(p, 'q') || undefined,
+        };
+        const docs = services.listDocuments(query);
+        const total = services.listDocuments().length;
+        const filtered = isFiltered(query);
         const rows = docs.map((d) =>
           `<tr class="row" data-surface="document:${esc(d.id)}" data-href="/files/${esc(d.id)}">` +
           `<td><a href="/files/${esc(d.id)}">${esc(d.name)}</a></td>` +
           `<td>${recordRef(d.entity, d.entityId)}</td>` +
           `<td><span class="badge" data-source="${esc(d.source)}">${esc(d.source)}</span></td>` +
+          // `storage` was on the record and shown NOWHERE, which is why "which of my files
+          // are not in Drive" was an unanswerable question about data the app already had.
+          `<td><span class="badge">${esc(d.storage)}</span></td>` +
           `<td class="sub">${esc(d.mimeType || '—')}</td>` +
           `<td class="mono">${esc(fileSize(d.size))}</td>` +
-          `<td class="mono">${esc(auditTime(d.createdAt))}</td></tr>`).join('')
-          || `<tr class="data-table__empty"><td colspan="6">No documents yet. Attach one from any record.</td></tr>`;
+          `<td class="mono">${esc(auditTime(d.createdAt))}</td></tr>`).join('');
         return layout('Files',
-          `<div class="page-head"><h1>Files</h1><span class="sub">${docs.length} document${docs.length === 1 ? '' : 's'}</span></div>` +
+          `<div class="page-head"><h1>Files</h1>` +
+          `<span class="sub">${countLabel(docs.length, total, 'document', 'documents')}</span></div>` +
+          facetBar('facets', '/files',
+            facetChips('source', 'Source', [
+              { value: 'upload', label: 'Uploaded' },
+              { value: 'generated', label: 'Generated' },
+              { value: 'link', label: 'Linked' },
+            ], query.source ?? []) +
+            facetChips('storage', 'Stored in', [
+              { value: 'local', label: 'This machine' },
+              { value: 'drive', label: 'Google Drive' },
+            ], query.storage ?? []),
+            filtered) +
           `<div class="panel"><table class="data-table dtable">` +
-          `<thead><tr><th>Name</th><th>Belongs to</th><th>Source</th><th>Type</th><th>Size</th><th>Added</th></tr></thead>` +
-          `<tbody class="rows" data-surface="document-list">${rows}</tbody></table></div>`,
-          { path: '/files', filter: { target: '[data-surface="document-list"]', placeholder: 'Filter files…' } });
+          `<thead><tr><th>Name</th><th>Belongs to</th><th>Source</th><th>Stored in</th>` +
+          `<th>Type</th><th>Size</th><th>Added</th></tr></thead>` +
+          `<tbody class="rows" data-surface="document-list">` +
+          tableBody(rows, 7, 'No documents yet. Attach one from any record.', filtered, '/files') +
+          `</tbody></table></div>`,
+          { path: '/files',
+            filter: { target: '[data-surface="document-list"]', placeholder: 'Filter files…',
+              form: 'facets', value: query.q, clearHref: without(req, 'q'),
+              counts: filtered ? { matched: docs.length, total } : undefined } });
       },
     },
     '/files/upload': {
@@ -1487,15 +1783,68 @@ const server = listen((port) => Bun.serve({
     },
 
     // --- Activity (the audit trail, whole-workspace) ---
+    // --- Activity (the audit trail, whole-workspace) ---
+    //
+    // This is the one list in STEWARD with a LIMIT on the read, which makes it the one
+    // place where "a filter cannot filter what was never sent" is concretely true rather
+    // than a principle. It used to render `audit.recent(200)` and then filter the DOM, so
+    // typing a customer's name produced "Showing 3 of 200" — which reads as three matches
+    // in the audit trail and was three matches in the most recent two hundred rows. That
+    // is a wrong answer delivered confidently. The predicate is in SQL now and the limit is
+    // what is left over, so the count on the page is a true sentence.
+    //
+    // The trail is never scoped by archived-ness. 0012: "an archived record's history is
+    // exactly what someone asks for later."
     '/activity': {
-      GET: () => {
-        const entries = services.repos.audit.recent(200);
+      GET: (req: Request) => {
+        const p = params(req);
+        const query: AuditQuery = {
+          entity: only<AuditEntity>(many(p, 'entity'), ['client', 'customer', 'ticket']),
+          action: only<AuditAction>(many(p, 'action'), ['create', 'update', 'archive', 'restore', 'delete']),
+          actor: many(p, 'actor'),
+          from: one(p, 'from') || undefined,
+          to: one(p, 'to') || undefined,
+          q: one(p, 'q') || undefined,
+          limit: ACTIVITY_LIMIT,
+        };
+        const entries = services.repos.audit.query(query);
+        const matching = services.repos.audit.count(query);
+        const total = services.repos.audit.count();
+        // `limit` is a page size, not a filter: a list that says "filtered" because it was
+        // capped would offer a Clear control that cannot uncap it.
+        const filtered = isFiltered({ ...query, limit: undefined });
         const items = entries.map((e) => auditItem(e, recordRef(e.entity, e.entityId))).join('')
-          || '<li class="muted">No activity recorded yet.</li>';
+          || `<li class="muted">${filtered
+            ? 'Nothing in the trail matches these filters.'
+            : 'No activity recorded yet.'}</li>`;
+        // Three numbers, and all three are said out loud, because the cap is real and
+        // hiding it is what made the old count wrong.
+        const head = entries.length < matching
+          ? `${entries.length} shown of ${matching} matching · ${total} in total`
+          : countLabel(matching, total, 'change', 'changes');
+        // The verbs come from `auditVerb`'s map, so the facet says "archived" where the
+        // timeline says "archived" — one vocabulary, not two.
+        const actions: AuditAction[] = ['create', 'update', 'archive', 'restore', 'delete'];
         return layout('Activity',
-          `<div class="page-head"><h1>Activity</h1><span class="sub">${entries.length} most recent changes</span></div>` +
+          `<div class="page-head"><h1>Activity</h1><span class="sub">${esc(head)}</span></div>` +
+          facetBar('facets', '/activity',
+            facetChips('entity', 'Record', [
+              { value: 'client', label: 'Clients' },
+              { value: 'customer', label: 'Customers' },
+              { value: 'ticket', label: 'Tickets' },
+            ], query.entity ?? []) +
+            facetChips('action', 'Action',
+              actions.map((a) => ({ value: a, label: auditVerb(a) })), query.action ?? []) +
+            facetChips('actor', 'By',
+              services.repos.audit.actors().map((a) => ({ value: a, label: a })), query.actor ?? []) +
+            facetDate('from', 'From', query.from ?? '') +
+            facetDate('to', 'To', query.to ?? ''),
+            filtered) +
           `<div class="panel"><div class="panel__body"><ul class="audit">${items}</ul></div></div>`,
-          { path: '/activity', filter: { target: '.audit', placeholder: 'Filter activity…' } });
+          { path: '/activity',
+            filter: { target: '.audit', placeholder: 'Filter activity…',
+              form: 'facets', value: query.q, clearHref: without(req, 'q'),
+              counts: filtered ? { matched: matching, total } : undefined } });
       },
     },
 

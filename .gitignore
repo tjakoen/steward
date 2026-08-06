@@ -55,3 +55,7 @@ nimbalyst-local/*
 # document renderers were written against (0013), and a renderer you cannot compare
 # to anything is a renderer nobody can review.
 !nimbalyst-local/mockups/
+
+# Agent worktrees and local agent state. `.claude/worktrees/` is a full second
+# checkout of this repo — committing it would nest the repository inside itself.
+.claude/

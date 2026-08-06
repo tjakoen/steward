@@ -37,6 +37,194 @@ export function icon(name: IconName, className?: string, size?: 'sm' | 'lg'): st
   );
 }
 
+// ---- Panel tabs (0014) -----------------------------------------------------
+// A DISCLOSURE tabset, wearing GRAIN's `.tab` and `.tab-bar`.
+//
+// GRAIN's tab means an editor's open file — a navigation link, active by `aria-current`,
+// closable, driven by `grain/scripts/tabs.js` out of localStorage. STEWARD does not load
+// that script (it would rewrite the strip on first paint and delete these tabs) and does
+// not claim that meaning: no `aria-current`, because this is not navigation. What it takes
+// is the BOX, through `data-active="true"` — the semantics-free half of GRAIN's own active
+// rule — and supplies the meaning itself in ARIA. The two never argue.
+//
+// Not one line of new tab CSS: `.tab` and `.tab-bar` are already in /components.css on
+// every page, and `app/view/css.test.ts` would fail on a STEWARD rule that named either.
+// `.panel-tabs` / `.panel-pane` are STEWARD's own, worn alongside.
+
+export interface PanelTab {
+  /** URL-safe, and the value of `?tab=`. */
+  id: string;
+  label: string;
+  body: string;
+}
+
+/**
+ * Which tab a request asked for, or the first one.
+ *
+ * An unknown `?tab=` must not select nothing: every pane hidden is a blank drawer, and a
+ * blank drawer reads as a broken app rather than as a bad link.
+ */
+export function resolveTab(tabs: PanelTab[], requested?: string | null): string {
+  const wanted = (requested ?? '').trim().toLowerCase();
+  return tabs.some((t) => t.id === wanted) ? wanted : (tabs[0]?.id ?? '');
+}
+
+/**
+ * The tablist and its panes, as one block.
+ *
+ * `base` must be unique PER RECORD: a drawer and a full page can hold panels for different
+ * records in one session, and the drawer's body is replaced wholesale, so ids derived from
+ * the tab name alone would collide and `aria-controls` would point at the wrong pane.
+ *
+ * Exactly one tab is `tabindex="0"` — a tablist is ONE stop in the Tab order, and the arrow
+ * keys move within it (steward-tabs.js). Panes are hidden with the `hidden` ATTRIBUTE, not
+ * with opacity: GRAIN's drawer recomputes its focus trap from `offsetParent !== null` on
+ * every Tab keypress, so `hidden` drops a pane out of the trap for free.
+ */
+export function panelTabs(base: string, tabs: PanelTab[], active?: string | null): string {
+  if (tabs.length < 2) return tabs.map((t) => t.body).join('');
+  const current = resolveTab(tabs, active);
+  const tabId = (id: string) => `${esc(base)}-tab-${esc(id)}`;
+  const paneId = (id: string) => `${esc(base)}-pane-${esc(id)}`;
+
+  const strip = tabs.map((t) => {
+    const on = t.id === current;
+    return (
+      `<button type="button" class="tab" role="tab" id="${tabId(t.id)}"` +
+      ` aria-controls="${paneId(t.id)}" aria-selected="${on}"` +
+      (on ? ' data-active="true"' : '') +
+      ` tabindex="${on ? 0 : -1}" data-tab="${esc(t.id)}">${esc(t.label)}</button>`
+    );
+  }).join('');
+
+  const panes = tabs.map((t) => {
+    const on = t.id === current;
+    // `tabindex="0"` on the pane: it is the Tab stop after the tablist, and a pane whose
+    // content is a list rather than a control would otherwise be unreachable by keyboard.
+    return (
+      `<section class="panel-pane" role="tabpanel" id="${paneId(t.id)}"` +
+      ` aria-labelledby="${tabId(t.id)}" tabindex="0"${on ? '' : ' hidden'}>${t.body}</section>`
+    );
+  }).join('');
+
+  return (
+    `<nav class="tab-bar panel-tabs" role="tablist" aria-label="Record sections"` +
+    ` data-panel-tabs="${esc(base)}">${strip}</nav>${panes}`
+  );
+}
+
+// ---- Facets (0014) ---------------------------------------------------------
+// A filter that is a URL is a filter you can send, bookmark, reload into, and hand to the
+// AI — GRAIN's dispatcher already has a `navigate` op, so `/tickets?status=Waiting` is
+// reachable by the reasoner the moment it exists, with no new action and no new surface.
+//
+// The control is GRAIN's `chip-group`, whose own .md opens by calling itself a facet
+// control: native inputs inside labels, zero JS, form-postable, keyboard and AX for free.
+// The bar is a plain `<form method="get">` with a real submit button, so it works with
+// JavaScript switched off entirely — which is the whole reason the decision went to the
+// server rather than to a DOM state nobody can name.
+
+export interface FacetOption {
+  value: string;
+  label: string;
+  /** How many records this value would match. Omitted where it cannot be computed. */
+  count?: number;
+}
+
+/**
+ * One group of chips.
+ *
+ * The `<fieldset class="chips">` is GRAIN's; the name of the group is a sibling `<span>`
+ * rather than a `<legend>`, because a legend inside a `display: flex` fieldset is laid out
+ * by the UA outside the flex flow and lands in the middle of the pills. `aria-label` says
+ * the same thing to a screen reader with none of that risk.
+ */
+export function facetChips(
+  name: string, legend: string, options: FacetOption[], selected: string[], multi = true,
+): string {
+  if (!options.length) return '';
+  const type = multi ? 'checkbox' : 'radio';
+  const chips = options.map((o) => {
+    const on = selected.includes(o.value);
+    return (
+      `<label class="chips__chip"><input type="${type}" name="${esc(name)}" value="${esc(o.value)}"` +
+      `${on ? ' checked' : ''}><span>${esc(o.label)}` +
+      (o.count === undefined ? '' : ` <span class="facets__count">${o.count}</span>`) +
+      `</span></label>`
+    );
+  }).join('');
+  return (
+    `<div class="facets__group"><span class="facets__label">${esc(legend)}</span>` +
+    `<fieldset class="chips" data-select="${multi ? 'multi' : 'single'}" aria-label="${esc(legend)}">` +
+    `${chips}</fieldset></div>`
+  );
+}
+
+/**
+ * One dropdown facet — for a set that grows with the workspace.
+ *
+ * Chips are right for a closed enum (four statuses, three sources). A client list is
+ * neither closed nor short, and forty pills is not a filter bar, it is the list again.
+ */
+export function facetSelect(
+  name: string, legend: string, options: FacetOption[], selected: string, allLabel: string,
+): string {
+  if (!options.length) return '';
+  const opts = [{ value: '', label: allLabel }, ...options]
+    .map((o) => `<option value="${esc(o.value)}"${o.value === selected ? ' selected' : ''}>${esc(o.label)}</option>`)
+    .join('');
+  const id = `facet_${esc(name)}`;
+  return (
+    `<div class="facets__group"><label class="facets__label" for="${id}">${esc(legend)}</label>` +
+    `<select id="${id}" name="${esc(name)}" class="facets__select">${opts}</select></div>`
+  );
+}
+
+/** A date bound. Two of these make the range the audit trail wants. */
+export function facetDate(name: string, legend: string, value: string): string {
+  const id = `facet_${esc(name)}`;
+  return (
+    `<div class="facets__group"><label class="facets__label" for="${id}">${esc(legend)}</label>` +
+    `<input id="${id}" type="date" name="${esc(name)}" value="${esc(value)}" class="facets__date"></div>`
+  );
+}
+
+/**
+ * The bar itself.
+ *
+ * `id` matters: the topbar's text box lives in another region of the shell entirely and
+ * joins this form through the `form` attribute, which is how Enter in the box becomes a
+ * server round trip while typing in it still narrows what is on screen instantly.
+ */
+export function facetBar(
+  id: string, action: string, groups: string, active: boolean,
+): string {
+  if (!groups) return '';
+  return (
+    `<form class="facets" id="${esc(id)}" method="get" action="${esc(action)}">` +
+    groups +
+    `<div class="facets__actions">` +
+    `<button type="submit" class="btn" data-variant="soft">Apply</button>` +
+    (active ? `<a class="linkish facets__clear" href="${esc(action)}">Clear filters</a>` : '') +
+    `</div></form>`
+  );
+}
+
+/**
+ * The row a table shows when the CLIENT-side box has hidden everything.
+ *
+ * It ships on every non-empty list and CSS hides it whenever a visible row exists — the
+ * same trick the kanban's empty column uses (`:has`), so there is nothing to keep in step
+ * and no JS-maintained empty state to get wrong. It names the way out, because Escape and
+ * Clear both already exist and go unmentioned exactly when they are needed.
+ */
+export function tableFilteredEmpty(colspan: number): string {
+  return (
+    `<tr class="dtable-none"><td colspan="${colspan}">Nothing here matches what you typed. ` +
+    `Press Escape, or use Clear, to bring the rest back.</td></tr>`
+  );
+}
+
 // ---- FormBuilder ----------------------------------------------------------
 
 export type FieldType = 'text' | 'email' | 'tel' | 'color' | 'textarea' | 'select';

@@ -63,12 +63,24 @@ body { --shell-console-min: 0rem; }
 .filter-clear { position: absolute; right: var(--space-3, .6rem); top: 50%; transform: translateY(-50%); }
 .filter-clear[hidden] { display: none; }
 /* What the filter hid. A filter that silently removes rows lets the operator
-   read a partial list as the whole one. */
+   read a partial list as the whole one. NOT `white-space: nowrap` any more: when
+   nothing matched, this is a SENTENCE — "0 of 2" read as a bug, which is what it
+   looked like beside a table that had silently gone empty — and a sentence that
+   cannot wrap runs off the end of the topbar. */
 .filter-note {
   font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
+  font-variant-numeric: tabular-nums; max-width: 44ch; line-height: 1.35;
 }
 .filter-note:empty { display: none; }
+/* The server's facets are not the client's to re-evaluate: the ops on /stream go to
+   every session and the server generating one does not know each viewer's query. So a
+   row that arrives into a faceted list is announced rather than judged — one line,
+   with the way to a correct list, and never a row the operator asked not to see. */
+.filter-stale {
+  font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64);
+  max-width: 40ch; line-height: 1.35;
+}
+.filter-stale[hidden] { display: none; }
 
 /* The pane is a flex column ONLY so the kanban board can stretch to fill it.
    Everything else must keep its natural height — without this, a tall page
@@ -166,6 +178,17 @@ body { --shell-console-min: 0rem; }
 /* Free text in a cell (a client's company info) will otherwise run the width of
    the window. The table still takes the pane; this one column reads. */
 .dtable td.sub { max-width: 52ch; }
+/* The row a table shows when the topbar box has hidden every one of its rows (0014).
+   Same mechanism as the kanban's empty column: `:has` reads the live hidden state, so
+   one rule covers "the filter emptied this" with nothing to keep in step — and unlike
+   GRAIN's `data-table__empty` (which the SERVER ships when a query returns nothing)
+   this one is always present and lets CSS decide. */
+.dtable-none td {
+  padding: var(--space-4, 1rem); text-align: center;
+  color: var(--color-muted, #6E6C64); font-size: var(--text-sm, .875rem);
+}
+.dtable tbody:has(tr.row:not([hidden])) .dtable-none { display: none; }
+
 .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-xs, .8125rem); color: var(--color-muted, #6E6C64); }
 .swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 6px; border: 1px solid var(--color-line, rgba(0,0,0,.15)); }
 
@@ -453,6 +476,78 @@ form.inline { display: inline; }
   font-size: var(--text-sm, .875rem); line-height: 1.5;
   color: var(--color-muted, #6E6C64);
 }
+
+/* ---- Panel tabs (0014) ----------------------------------------------------
+   The strip is GRAIN's `tab-bar` organism and each tab is GRAIN's `tab` molecule,
+   both already in /components.css and both, until now, bytes STEWARD was paying
+   for and not using. There is no new tab CSS here and there must not be: `.tab`,
+   `.tab-bar`, `.tab__icon`, `.tab__close` are the design system's names and
+   app/view/css.test.ts fails on any of them. `.panel-tabs` and `.panel-pane` are
+   STEWARD's, worn alongside — the same pattern as `.dtable` beside `data-table`.
+
+   THE TRAP, and it looks exactly like the tabs being broken. GRAIN's `.tab` was
+   drawn for an `<a>`: it sets color, font and text-decoration and assumes no UA
+   chrome. A tab in a tabset must be a `<button>`, because it DISCLOSES a pane
+   rather than navigating — and a `<button class="tab">` therefore arrives wearing
+   the browser's own border, background and system font underneath GRAIN's rules,
+   looking nothing like the strip beside it. The fix is GRAIN's own, from
+   `.tab-bar__close-all`: `all: unset`, then rebuild the box.
+
+   `:where()` is load-bearing. `all: unset` under a plain `.panel-tabs button`
+   selector would out-specify `.tab` (0,1,1 against 0,1,0) and, from a stylesheet
+   that loads second, unset the very declarations it is here to keep. Wrapped in
+   `:where()` the selector weighs nothing: it beats the UA stylesheet, which is
+   the whole job, and loses to `.tab`, which is the whole point. */
+:where(.panel-tabs button) { all: unset; }
+/* The three properties GRAIN's `.tab` does NOT set, restated at ordinary weight
+   because `all: unset` took them to their initial values and `border-box` is what
+   every other box in this app is. */
+.panel-tabs button { box-sizing: border-box; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.panel-tabs button:focus-visible { outline: 2px solid var(--color-accent, #1C1B17); outline-offset: -2px; }
+/* A baseline for the strip to sit on, and air before the pane it discloses. */
+.panel-tabs { border-bottom: 1px solid var(--color-line, rgba(28,27,23,.14)); margin: 0 0 var(--space-4, 1rem); }
+
+.panel-pane[hidden] { display: none; }
+/* The pane is a Tab stop of its own (a pane of read-only history holds no control,
+   and would otherwise be unreachable by keyboard), so it has to show when it is on. */
+.panel-pane:focus-visible { outline: 2px solid var(--color-accent, #1C1B17); outline-offset: 3px; }
+/* A section heading opening a pane needs no run-up: the tab above it already is one. */
+.panel-pane > :first-child { margin-top: 0; }
+
+/* ---- Facets (0014) --------------------------------------------------------
+   A GET form of GRAIN chip-groups, which is why a checked chip and the button work
+   with JavaScript switched off — the claim the whole server-side decision rests on.
+
+   Everything here hangs off a STEWARD class. `.chips` is doing double duty in this
+   app: GRAIN's fieldset here, and a flex-wrap row for `<a class="chip">` links in
+   the record panels (see `.chip` below). A rule written for one would land on the
+   other, so none is written for either. */
+.facets {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-4, 1rem);
+  margin: 0 0 var(--space-5, 1.25rem); padding: var(--space-3, .75rem) var(--space-4, 1rem);
+  border: 1px solid var(--color-line, rgba(28,27,23,.14));
+  border-radius: var(--radius-md, 6px); background: var(--color-surface, #E8E6DF);
+}
+.facets__group { display: grid; gap: var(--space-2, .5rem); align-content: end; }
+.facets__label {
+  font-size: var(--text-xs, .8125rem); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--color-muted, #6E6C64);
+}
+/* "Waiting (7)" is the reason the facets are a server round trip at all: a count
+   cannot be computed from rows the page never received. */
+.facets__count { font-variant-numeric: tabular-nums; opacity: .7; }
+.facets__select, .facets__date {
+  padding: var(--space-2, .5rem) var(--space-3, .55rem);
+  border: 1px solid var(--color-line, rgba(28,27,23,.14)); border-radius: var(--radius-md, 5px);
+  background: var(--color-bg, #E2E0D8); color: inherit; font: inherit; font-size: var(--text-sm, .875rem);
+}
+.facets__select:focus-visible, .facets__date:focus-visible {
+  outline: 2px solid var(--color-accent, #2F6FE0); outline-offset: 1px;
+}
+/* Apply follows the last facet rather than being pushed to the far edge. Pushed
+   (`margin-left: auto`) it took a whole wrapped row of its own at 1440px, which
+   left a band of empty panel taller than the facets themselves. */
+.facets__actions { display: flex; align-items: center; gap: var(--space-3, .75rem); padding-bottom: 1px; }
 
 /* --- snackbar -------------------------------------------------------------
    A verb's own sentence, where the operator is actually looking. Fixed to the

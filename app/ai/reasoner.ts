@@ -25,7 +25,7 @@ export function makeStewardReasoner(services: Services): Reasoner {
         const customer = services.repos.customers.list()[0];
         let line: string;
         if (customer) {
-          const existing = services.repos.tickets.list(customer.id)[0];
+          const existing = services.repos.tickets.list({ customerId: customer.id })[0];
           if (existing) {
             const t = services.addProgress(
               existing.id,

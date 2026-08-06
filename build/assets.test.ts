@@ -56,6 +56,7 @@ test('every URL the pages ask for is in the manifest', () => {
     '/scripts/theme-boot.js', '/scripts/theme.js', '/scripts/ai-dispatch.js',
     '/scripts/shell.js', '/scripts/drawer.js',
     '/app/steward.css', '/app/steward-live.js', '/app/steward-chat.js', '/app/steward-picker.js',
+    '/app/steward-tabs.js',
     '/assets/sprite.svg',
     '/proof.css', '/proof-live.js', '/crumb.css', '/crumb-live.js',
   ];

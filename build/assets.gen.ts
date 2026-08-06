@@ -42,72 +42,73 @@ import f26 from '../node_modules/@tjakoen/grain/assets/sprite.svg' with { type: 
 import f27 from '../frontend/client/steward-chat.js' with { type: 'file' };
 import f28 from '../frontend/client/steward-live.js' with { type: 'file' };
 import f29 from '../frontend/client/steward-picker.js' with { type: 'file' };
-import f30 from '../frontend/client/steward.css' with { type: 'file' };
-import f31 from '../node_modules/@tjakoen/grain/fonts/redaction-35-400.woff2' with { type: 'file' };
-import f32 from '../node_modules/@tjakoen/grain/fonts/redaction-400.woff2' with { type: 'file' };
-import f33 from '../node_modules/@tjakoen/grain/fonts/redaction-50-400.woff2' with { type: 'file' };
-import f34 from '../node_modules/@tjakoen/grain/fonts/redaction-70-400.woff2' with { type: 'file' };
-import f35 from '../node_modules/@tjakoen/proof/board.css' with { type: 'file' };
-import f36 from '../node_modules/@tjakoen/proof/board-live.js' with { type: 'file' };
-import f37 from '../node_modules/@tjakoen/crumb/crumb.css' with { type: 'file' };
-import f38 from '../node_modules/@tjakoen/crumb/crumb-live.js' with { type: 'file' };
-import f39 from '../content/help/getting-started.md' with { type: 'file' };
-import f40 from '../content/changelog.md' with { type: 'file' };
-import f41 from '../node_modules/@tjakoen/grain/components/atoms/action-badge/action-badge.html' with { type: 'file' };
-import f42 from '../node_modules/@tjakoen/grain/components/atoms/b-badge/b-badge.html' with { type: 'file' };
-import f43 from '../node_modules/@tjakoen/grain/components/atoms/b-button/b-button.html' with { type: 'file' };
-import f44 from '../node_modules/@tjakoen/grain/components/atoms/b-icon-button/b-icon-button.html' with { type: 'file' };
-import f45 from '../node_modules/@tjakoen/grain/components/atoms/b-icon/b-icon.html' with { type: 'file' };
-import f46 from '../node_modules/@tjakoen/grain/components/atoms/b-input/b-input.html' with { type: 'file' };
-import f47 from '../node_modules/@tjakoen/grain/components/atoms/b-kbd/b-kbd.html' with { type: 'file' };
-import f48 from '../node_modules/@tjakoen/grain/components/atoms/b-list/b-list.html' with { type: 'file' };
-import f49 from '../node_modules/@tjakoen/grain/components/atoms/b-switch/b-switch.html' with { type: 'file' };
-import f50 from '../node_modules/@tjakoen/grain/components/atoms/b-text/b-text.html' with { type: 'file' };
-import f51 from '../node_modules/@tjakoen/grain/ai/ai.css' with { type: 'file' };
-import f52 from '../node_modules/@tjakoen/grain/components/atoms/action-badge/action-badge.css' with { type: 'file' };
-import f53 from '../node_modules/@tjakoen/grain/components/atoms/b-badge/b-badge.css' with { type: 'file' };
-import f54 from '../node_modules/@tjakoen/grain/components/atoms/b-button/b-button.css' with { type: 'file' };
-import f55 from '../node_modules/@tjakoen/grain/components/atoms/b-icon-button/b-icon-button.css' with { type: 'file' };
-import f56 from '../node_modules/@tjakoen/grain/components/atoms/b-icon/b-icon.css' with { type: 'file' };
-import f57 from '../node_modules/@tjakoen/grain/components/atoms/b-input/b-input.css' with { type: 'file' };
-import f58 from '../node_modules/@tjakoen/grain/components/atoms/b-kbd/b-kbd.css' with { type: 'file' };
-import f59 from '../node_modules/@tjakoen/grain/components/atoms/b-list/b-list.css' with { type: 'file' };
-import f60 from '../node_modules/@tjakoen/grain/components/atoms/b-meter/b-meter.css' with { type: 'file' };
-import f61 from '../node_modules/@tjakoen/grain/components/atoms/b-select/b-select.css' with { type: 'file' };
-import f62 from '../node_modules/@tjakoen/grain/components/atoms/b-switch/b-switch.css' with { type: 'file' };
-import f63 from '../node_modules/@tjakoen/grain/components/atoms/b-text/b-text.css' with { type: 'file' };
-import f64 from '../node_modules/@tjakoen/grain/components/atoms/code-block/code-block.css' with { type: 'file' };
-import f65 from '../node_modules/@tjakoen/grain/components/molecules/callout/callout.css' with { type: 'file' };
-import f66 from '../node_modules/@tjakoen/grain/components/molecules/card/card.css' with { type: 'file' };
-import f67 from '../node_modules/@tjakoen/grain/components/molecules/chat-message/chat-message.css' with { type: 'file' };
-import f68 from '../node_modules/@tjakoen/grain/components/molecules/chip-group/chip-group.css' with { type: 'file' };
-import f69 from '../node_modules/@tjakoen/grain/components/molecules/content-index/content-index.css' with { type: 'file' };
-import f70 from '../node_modules/@tjakoen/grain/components/molecules/content-source/content-source.css' with { type: 'file' };
-import f71 from '../node_modules/@tjakoen/grain/components/molecules/data-table/data-table.css' with { type: 'file' };
-import f72 from '../node_modules/@tjakoen/grain/components/molecules/figure/figure.css' with { type: 'file' };
-import f73 from '../node_modules/@tjakoen/grain/components/molecules/lede/lede.css' with { type: 'file' };
-import f74 from '../node_modules/@tjakoen/grain/components/molecules/made-with/made-with.css' with { type: 'file' };
-import f75 from '../node_modules/@tjakoen/grain/components/molecules/nav-item/nav-item.css' with { type: 'file' };
-import f76 from '../node_modules/@tjakoen/grain/components/molecules/stat-tile/stat-tile.css' with { type: 'file' };
-import f77 from '../node_modules/@tjakoen/grain/components/molecules/status-list/status-list.css' with { type: 'file' };
-import f78 from '../node_modules/@tjakoen/grain/components/molecules/tab/tab.css' with { type: 'file' };
-import f79 from '../node_modules/@tjakoen/grain/components/molecules/table/table.css' with { type: 'file' };
-import f80 from '../node_modules/@tjakoen/grain/components/organisms/activity-bar/activity-bar.css' with { type: 'file' };
-import f81 from '../node_modules/@tjakoen/grain/components/organisms/app-shell/app-shell.css' with { type: 'file' };
-import f82 from '../node_modules/@tjakoen/grain/components/organisms/app-window/app-window.css' with { type: 'file' };
-import f83 from '../node_modules/@tjakoen/grain/components/organisms/chat-log/chat-log.css' with { type: 'file' };
-import f84 from '../node_modules/@tjakoen/grain/components/organisms/code-editor/code-editor.css' with { type: 'file' };
-import f85 from '../node_modules/@tjakoen/grain/components/organisms/console/console.css' with { type: 'file' };
-import f86 from '../node_modules/@tjakoen/grain/components/organisms/drawer/drawer.css' with { type: 'file' };
-import f87 from '../node_modules/@tjakoen/grain/components/organisms/file-tree/file-tree.css' with { type: 'file' };
-import f88 from '../node_modules/@tjakoen/grain/components/organisms/note/note.css' with { type: 'file' };
-import f89 from '../node_modules/@tjakoen/grain/components/organisms/notepad/notepad.css' with { type: 'file' };
-import f90 from '../node_modules/@tjakoen/grain/components/organisms/side-rail/side-rail.css' with { type: 'file' };
-import f91 from '../node_modules/@tjakoen/grain/components/organisms/sidebar-panel/sidebar-panel.css' with { type: 'file' };
-import f92 from '../node_modules/@tjakoen/grain/components/organisms/status-bar/status-bar.css' with { type: 'file' };
-import f93 from '../node_modules/@tjakoen/grain/components/organisms/tab-bar/tab-bar.css' with { type: 'file' };
-import f94 from '../node_modules/@tjakoen/grain/components/organisms/timeline/timeline.css' with { type: 'file' };
-import f95 from '../node_modules/@tjakoen/grain/components/organisms/topbar/topbar.css' with { type: 'file' };
+import f30 from '../frontend/client/steward-tabs.js' with { type: 'file' };
+import f31 from '../frontend/client/steward.css' with { type: 'file' };
+import f32 from '../node_modules/@tjakoen/grain/fonts/redaction-35-400.woff2' with { type: 'file' };
+import f33 from '../node_modules/@tjakoen/grain/fonts/redaction-400.woff2' with { type: 'file' };
+import f34 from '../node_modules/@tjakoen/grain/fonts/redaction-50-400.woff2' with { type: 'file' };
+import f35 from '../node_modules/@tjakoen/grain/fonts/redaction-70-400.woff2' with { type: 'file' };
+import f36 from '../node_modules/@tjakoen/proof/board.css' with { type: 'file' };
+import f37 from '../node_modules/@tjakoen/proof/board-live.js' with { type: 'file' };
+import f38 from '../node_modules/@tjakoen/crumb/crumb.css' with { type: 'file' };
+import f39 from '../node_modules/@tjakoen/crumb/crumb-live.js' with { type: 'file' };
+import f40 from '../content/help/getting-started.md' with { type: 'file' };
+import f41 from '../content/changelog.md' with { type: 'file' };
+import f42 from '../node_modules/@tjakoen/grain/components/atoms/action-badge/action-badge.html' with { type: 'file' };
+import f43 from '../node_modules/@tjakoen/grain/components/atoms/b-badge/b-badge.html' with { type: 'file' };
+import f44 from '../node_modules/@tjakoen/grain/components/atoms/b-button/b-button.html' with { type: 'file' };
+import f45 from '../node_modules/@tjakoen/grain/components/atoms/b-icon-button/b-icon-button.html' with { type: 'file' };
+import f46 from '../node_modules/@tjakoen/grain/components/atoms/b-icon/b-icon.html' with { type: 'file' };
+import f47 from '../node_modules/@tjakoen/grain/components/atoms/b-input/b-input.html' with { type: 'file' };
+import f48 from '../node_modules/@tjakoen/grain/components/atoms/b-kbd/b-kbd.html' with { type: 'file' };
+import f49 from '../node_modules/@tjakoen/grain/components/atoms/b-list/b-list.html' with { type: 'file' };
+import f50 from '../node_modules/@tjakoen/grain/components/atoms/b-switch/b-switch.html' with { type: 'file' };
+import f51 from '../node_modules/@tjakoen/grain/components/atoms/b-text/b-text.html' with { type: 'file' };
+import f52 from '../node_modules/@tjakoen/grain/ai/ai.css' with { type: 'file' };
+import f53 from '../node_modules/@tjakoen/grain/components/atoms/action-badge/action-badge.css' with { type: 'file' };
+import f54 from '../node_modules/@tjakoen/grain/components/atoms/b-badge/b-badge.css' with { type: 'file' };
+import f55 from '../node_modules/@tjakoen/grain/components/atoms/b-button/b-button.css' with { type: 'file' };
+import f56 from '../node_modules/@tjakoen/grain/components/atoms/b-icon-button/b-icon-button.css' with { type: 'file' };
+import f57 from '../node_modules/@tjakoen/grain/components/atoms/b-icon/b-icon.css' with { type: 'file' };
+import f58 from '../node_modules/@tjakoen/grain/components/atoms/b-input/b-input.css' with { type: 'file' };
+import f59 from '../node_modules/@tjakoen/grain/components/atoms/b-kbd/b-kbd.css' with { type: 'file' };
+import f60 from '../node_modules/@tjakoen/grain/components/atoms/b-list/b-list.css' with { type: 'file' };
+import f61 from '../node_modules/@tjakoen/grain/components/atoms/b-meter/b-meter.css' with { type: 'file' };
+import f62 from '../node_modules/@tjakoen/grain/components/atoms/b-select/b-select.css' with { type: 'file' };
+import f63 from '../node_modules/@tjakoen/grain/components/atoms/b-switch/b-switch.css' with { type: 'file' };
+import f64 from '../node_modules/@tjakoen/grain/components/atoms/b-text/b-text.css' with { type: 'file' };
+import f65 from '../node_modules/@tjakoen/grain/components/atoms/code-block/code-block.css' with { type: 'file' };
+import f66 from '../node_modules/@tjakoen/grain/components/molecules/callout/callout.css' with { type: 'file' };
+import f67 from '../node_modules/@tjakoen/grain/components/molecules/card/card.css' with { type: 'file' };
+import f68 from '../node_modules/@tjakoen/grain/components/molecules/chat-message/chat-message.css' with { type: 'file' };
+import f69 from '../node_modules/@tjakoen/grain/components/molecules/chip-group/chip-group.css' with { type: 'file' };
+import f70 from '../node_modules/@tjakoen/grain/components/molecules/content-index/content-index.css' with { type: 'file' };
+import f71 from '../node_modules/@tjakoen/grain/components/molecules/content-source/content-source.css' with { type: 'file' };
+import f72 from '../node_modules/@tjakoen/grain/components/molecules/data-table/data-table.css' with { type: 'file' };
+import f73 from '../node_modules/@tjakoen/grain/components/molecules/figure/figure.css' with { type: 'file' };
+import f74 from '../node_modules/@tjakoen/grain/components/molecules/lede/lede.css' with { type: 'file' };
+import f75 from '../node_modules/@tjakoen/grain/components/molecules/made-with/made-with.css' with { type: 'file' };
+import f76 from '../node_modules/@tjakoen/grain/components/molecules/nav-item/nav-item.css' with { type: 'file' };
+import f77 from '../node_modules/@tjakoen/grain/components/molecules/stat-tile/stat-tile.css' with { type: 'file' };
+import f78 from '../node_modules/@tjakoen/grain/components/molecules/status-list/status-list.css' with { type: 'file' };
+import f79 from '../node_modules/@tjakoen/grain/components/molecules/tab/tab.css' with { type: 'file' };
+import f80 from '../node_modules/@tjakoen/grain/components/molecules/table/table.css' with { type: 'file' };
+import f81 from '../node_modules/@tjakoen/grain/components/organisms/activity-bar/activity-bar.css' with { type: 'file' };
+import f82 from '../node_modules/@tjakoen/grain/components/organisms/app-shell/app-shell.css' with { type: 'file' };
+import f83 from '../node_modules/@tjakoen/grain/components/organisms/app-window/app-window.css' with { type: 'file' };
+import f84 from '../node_modules/@tjakoen/grain/components/organisms/chat-log/chat-log.css' with { type: 'file' };
+import f85 from '../node_modules/@tjakoen/grain/components/organisms/code-editor/code-editor.css' with { type: 'file' };
+import f86 from '../node_modules/@tjakoen/grain/components/organisms/console/console.css' with { type: 'file' };
+import f87 from '../node_modules/@tjakoen/grain/components/organisms/drawer/drawer.css' with { type: 'file' };
+import f88 from '../node_modules/@tjakoen/grain/components/organisms/file-tree/file-tree.css' with { type: 'file' };
+import f89 from '../node_modules/@tjakoen/grain/components/organisms/note/note.css' with { type: 'file' };
+import f90 from '../node_modules/@tjakoen/grain/components/organisms/notepad/notepad.css' with { type: 'file' };
+import f91 from '../node_modules/@tjakoen/grain/components/organisms/side-rail/side-rail.css' with { type: 'file' };
+import f92 from '../node_modules/@tjakoen/grain/components/organisms/sidebar-panel/sidebar-panel.css' with { type: 'file' };
+import f93 from '../node_modules/@tjakoen/grain/components/organisms/status-bar/status-bar.css' with { type: 'file' };
+import f94 from '../node_modules/@tjakoen/grain/components/organisms/tab-bar/tab-bar.css' with { type: 'file' };
+import f95 from '../node_modules/@tjakoen/grain/components/organisms/timeline/timeline.css' with { type: 'file' };
+import f96 from '../node_modules/@tjakoen/grain/components/organisms/topbar/topbar.css' with { type: 'file' };
 
 /** URL path → the embedded file backing it. */
 export const ASSETS: Readonly<Record<string, string>> = {
@@ -141,40 +142,40 @@ export const ASSETS: Readonly<Record<string, string>> = {
   '/app/steward-chat.js': f27,
   '/app/steward-live.js': f28,
   '/app/steward-picker.js': f29,
-  '/app/steward.css': f30,
-  '/fonts/redaction-35-400.woff2': f31,
-  '/fonts/redaction-400.woff2': f32,
-  '/fonts/redaction-50-400.woff2': f33,
-  '/fonts/redaction-70-400.woff2': f34,
-  '/proof.css': f35,
-  '/proof-live.js': f36,
-  '/crumb.css': f37,
-  '/crumb-live.js': f38,
+  '/app/steward-tabs.js': f30,
+  '/app/steward.css': f31,
+  '/fonts/redaction-35-400.woff2': f32,
+  '/fonts/redaction-400.woff2': f33,
+  '/fonts/redaction-50-400.woff2': f34,
+  '/fonts/redaction-70-400.woff2': f35,
+  '/proof.css': f36,
+  '/proof-live.js': f37,
+  '/crumb.css': f38,
+  '/crumb-live.js': f39,
 };
 
 /** `<collection prefix>/<file>.md` → the embedded Markdown MILL renders. */
 export const CONTENT: Readonly<Record<string, string>> = {
-  '/help/getting-started.md': f39,
-  '/changelog/changelog.md': f40,
+  '/help/getting-started.md': f40,
+  '/changelog/changelog.md': f41,
 };
 
 /** `<name>.html` → the embedded template for the `<name>` component tag. */
 export const COMPONENTS: Readonly<Record<string, string>> = {
-  'action-badge.html': f41,
-  'b-badge.html': f42,
-  'b-button.html': f43,
-  'b-icon-button.html': f44,
-  'b-icon.html': f45,
-  'b-input.html': f46,
-  'b-kbd.html': f47,
-  'b-list.html': f48,
-  'b-switch.html': f49,
-  'b-text.html': f50,
+  'action-badge.html': f42,
+  'b-badge.html': f43,
+  'b-button.html': f44,
+  'b-icon-button.html': f45,
+  'b-icon.html': f46,
+  'b-input.html': f47,
+  'b-kbd.html': f48,
+  'b-list.html': f49,
+  'b-switch.html': f50,
+  'b-text.html': f51,
 };
 
 /** Component stylesheets, in the cascade order /components.css must preserve. */
 export const BUNDLE: readonly string[] = [
-  f51,
   f52,
   f53,
   f54,
@@ -219,4 +220,5 @@ export const BUNDLE: readonly string[] = [
   f93,
   f94,
   f95,
+  f96,
 ];

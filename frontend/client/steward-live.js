@@ -10,6 +10,9 @@ function el(surface) {
 
 function applyOp(o) {
   const t = el(o.target);
+  // Captured BEFORE the op, because `remove` takes the element out of the document
+  // and a detached node is inside nothing.
+  const landed = t ? filterScopesHolding(t) : [];
   switch (o.op) {
     case 'append':
       if (t && o.html) t.insertAdjacentHTML('beforeend', o.html);
@@ -25,6 +28,50 @@ function applyOp(o) {
       break;
   }
   refreshBoardCounts();
+
+  // Two halves of one bug, and only one of them is the client's to fix.
+  //
+  // The TEXT filter is the client's own, so re-apply it: an op used to insert a row
+  // into a filtered list regardless of the query, and leave `.filter-note` showing
+  // the count it computed before. That was a live bug, not a new risk.
+  //
+  // The server's FACETS are not the client's to re-evaluate. The ops go to every
+  // session on /stream and the server generating one does not know each viewer's
+  // query; the markup does not always carry enough to tell either (a kanban card
+  // has `data-status`, a client row carries only its id). So the honest move is to
+  // say so and offer a correct list, rather than to guess.
+  for (const inp of document.querySelectorAll('[data-filter]')) {
+    if (inp.value) applyFilter(inp);
+  }
+  if (landed.length) announceStale();
+}
+
+/** The filter scopes (if any) that contain a node — used before an op detaches it. */
+function filterScopesHolding(node) {
+  const out = [];
+  for (const inp of document.querySelectorAll('[data-filter]')) {
+    const scope = document.querySelector(inp.getAttribute('data-filter'));
+    if (scope && (scope === node || scope.contains(node))) out.push(scope);
+  }
+  return out;
+}
+
+// The notice is RENDERED ONLY when the URL carries facets (server.ts), so its mere
+// presence is the test for "this list is a server-filtered one" — no second copy of
+// the facet vocabulary in the browser to fall out of step with the real one.
+let staleCount = 0;
+function announceStale() {
+  const note = document.querySelector('[data-filter-stale]');
+  if (!note) return;
+  staleCount++;
+  note.hidden = false;
+  note.textContent = staleCount === 1
+    ? '1 record changed elsewhere. '
+    : `${staleCount} records changed elsewhere. `;
+  const link = document.createElement('a');
+  link.href = location.href;
+  link.textContent = 'Reload to re-apply the filters';
+  note.append(link, document.createTextNode('.'));
 }
 
 // Recompute kanban column counts from the DOM after every op (moves change them).
@@ -58,12 +105,32 @@ function drawerParts() {
 // the drawer opened after, which is also what makes GRAIN focus the right field.
 const openDrawer = (opener) => window.grain?.drawer?.open(drawer(), opener);
 
+/**
+ * Which tab a control inside a panel is sitting in.
+ *
+ * Read off the PANE rather than off the tablist: a control is in exactly one pane
+ * and the pane names its own tab through `aria-labelledby`, so there is nothing to
+ * search and no way to pick up a different record's tablist.
+ */
+function currentTab(node) {
+  const pane = node.closest('.panel-pane');
+  if (!pane) return '';
+  const tab = document.getElementById(pane.getAttribute('aria-labelledby') || '');
+  return tab?.dataset.tab ?? '';
+}
+
 // GRAIN focuses the first control in the panel, which is the close button in the
 // head. That is right for a record being READ; for a form it is one Tab short of
 // where the operator is going, so the form's own first field takes over.
+// `querySelector` FINDS hidden elements, and `.focus()` on one silently does
+// nothing — so once a pane can hold a form, the first field of a hidden tab would
+// swallow the focus and it would read as the drawer simply not focusing anything.
+// `offsetParent === null` is the same liveness test GRAIN's drawer.js uses to
+// build its focus trap, which is what keeps the two from disagreeing.
 function focusFirstField(p) {
-  const f = p.body.querySelector('input:not([type=hidden]), select, textarea');
-  if (f) f.focus();
+  for (const f of p.body.querySelectorAll('input:not([type=hidden]), select, textarea')) {
+    if (f.offsetParent !== null) { f.focus(); return; }
+  }
 }
 
 // The one thing a modal needs that GRAIN's script does not do: lock the scroll.
@@ -83,15 +150,25 @@ document.addEventListener('grain:drawer-close', (e) => {
 let createHTML = null, createTitle = '';
 (() => { const p = drawerParts(); if (p) { createHTML = p.body.innerHTML; createTitle = p.title.textContent; } })();
 
-async function loadPanel(path, opener) {
+// `tab` is carried into the fragment request rather than applied afterwards: the
+// panes are all rendered server-side in the one response, so which one is open is
+// the SERVER's answer, and asking for it is one query parameter. It is also the
+// only thing that makes Edit → Cancel land back where the operator was — that path
+// re-fetches this same URL, and without the tab it would drop them on Details.
+async function loadPanel(path, opener, tab) {
   const p = drawerParts(); if (!p) return;
   p.body.innerHTML = '<p class="muted">Loading…</p>';
   p.title.textContent = 'Details';
   openDrawer(opener);
   p.d.dataset.recordPath = path;   // after opening: closing clears it
-  p.body.innerHTML = await (await fetch(path + '/panel')).text();
+  p.d.dataset.recordTab = tab || '';
+  const url = path + '/panel' + (tab ? '?tab=' + encodeURIComponent(tab) : '');
+  p.body.innerHTML = await (await fetch(url)).text();
   const marker = p.body.querySelector('[data-panel-title]');
   if (marker) p.title.textContent = marker.getAttribute('data-panel-title');
+  // steward-tabs.js scrolls the selected tab into view; nothing else re-binds,
+  // because every listener over there is delegated from the document.
+  document.dispatchEvent(new CustomEvent('steward:panel-loaded'));
 }
 
 document.addEventListener('click', (e) => {
@@ -141,7 +218,8 @@ document.addEventListener('click', async (e) => {
 // so reloading the page there would throw away the panel they are working in.
 document.addEventListener('steward:refresh', () => {
   const path = drawer()?.dataset.recordPath;
-  if (path && !drawer().hidden) loadPanel(path); else location.reload();
+  if (path && !drawer().hidden) loadPanel(path, undefined, drawer().dataset.recordTab);
+  else location.reload();
 });
 
 // ---- instant client-side filter (topbar box filters a table body or board) -
@@ -164,7 +242,39 @@ function applyFilter(inp) {
   const clear = inp.closest('.topbar-search')?.querySelector('[data-filter-clear]');
   if (clear) clear.hidden = !q;
   const note = document.querySelector('[data-filter-note]');
-  if (note) note.textContent = q ? `Showing ${shown} of ${rows.length}` : '';
+  if (note) note.textContent = filterNote(inp.value.trim(), shown, rows.length, note);
+}
+
+/**
+ * What the filter box has to say for itself.
+ *
+ * Three sentences, because there are three different situations and only one of
+ * them is a count.
+ *
+ * **Nothing matched.** "Showing 0 of 2" read to the operator as a bug, and beside a
+ * table that had silently gone empty it is hard to argue. A zero result is the one
+ * case that wants a sentence: say that nothing matched, NAME the query so it is
+ * obvious what was actually searched for, and point at the way out. Clear and
+ * Escape both already existed and went unmentioned at exactly the moment they were
+ * needed.
+ *
+ * **Facets are also live.** "Showing 3 of 12" where the 12 was already a filtered
+ * set is a lie by omission, so the note names the whole: the server writes what it
+ * matched and out of how many into the note's own dataset, and this restates it
+ * beside the client's numbers.
+ *
+ * **Neither.** The server's sentence, or nothing at all.
+ */
+function filterNote(q, shown, total, note) {
+  const matched = note.dataset.filterMatched, whole = note.dataset.filterTotal;
+  const facets = matched !== undefined && whole !== undefined;
+  const server = facets ? `${matched} of ${whole} match the filters` : '';
+  if (!q) return server;
+  if (!shown) {
+    return `Nothing here matches “${q}”. Press Escape, or use Clear, to bring back ` +
+      `${total === 1 ? 'the one row' : `all ${total} rows`}.`;
+  }
+  return `Showing ${shown} of ${total}` + (server ? ` · ${server}` : '');
 }
 
 function clearFilter(inp) {
@@ -296,7 +406,10 @@ async function submitForm(form) {
       const path = drawer().dataset.recordPath;
       if (form.dataset.mode === 'edit') {
         // The reload wipes an on-screen snack, so this one is parked too.
-        if (path && location.pathname !== path) loadPanel(path);
+        // Saving an edit lands back on the tab it was started from, for the same
+        // reason Cancel does: the tab was stashed on the drawer before the edit
+        // fragment replaced the tablist.
+        if (path && location.pathname !== path) loadPanel(path, undefined, drawer().dataset.recordTab);
         else { snackLater(reply || 'Saved.', true); location.reload(); }
         return;
       }
@@ -331,6 +444,10 @@ document.addEventListener('click', async (e) => {
   const p = drawerParts(); if (!p) return;
   if (t.hasAttribute('data-form-edit')) {
     const path = p.d.dataset.recordPath || location.pathname;
+    // Edit replaces the WHOLE drawer body, tablist included, so the tab has to be
+    // written down before it is destroyed. From a full page there is no drawer tab
+    // yet — the URL is where the operator's tab lives there.
+    p.d.dataset.recordTab = currentTab(t) || p.d.dataset.recordTab || '';
     p.body.innerHTML = '<p class="muted">Loading…</p>';
     p.title.textContent = 'Edit';
     openDrawer(t);                 // a no-op when it is already the open drawer
@@ -339,7 +456,7 @@ document.addEventListener('click', async (e) => {
     focusFirstField(p);
   } else if (t.hasAttribute('data-form-cancel')) {
     const path = p.d.dataset.recordPath;
-    if (path) loadPanel(path, t); else window.grain?.drawer?.close();
+    if (path) loadPanel(path, t, p.d.dataset.recordTab); else window.grain?.drawer?.close();
   }
 });
 

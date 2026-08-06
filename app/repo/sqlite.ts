@@ -12,9 +12,13 @@ import type {
   Ticket,
 } from '../domain/types.ts';
 import type {
+  AuditQuery,
   AuditRepository,
+  ClientQuery,
   ClientRepository,
+  CustomerQuery,
   CustomerRepository,
+  DocumentQuery,
   DocumentRepository,
   NewClient,
   NewCustomer,
@@ -22,6 +26,7 @@ import type {
   NewTicket,
   Repositories,
   SettingsRepository,
+  TicketQuery,
   TicketRepository,
 } from './ports.ts';
 
@@ -67,6 +72,61 @@ const scopeSql = (scope: ListScope, cols: string[]): string => {
   return scope === 'live' ? live : `NOT (${live})`;
 };
 
+type Param = string | number;
+
+/**
+ * A WHERE clause under construction (0014): predicates AND'd together, values in order.
+ *
+ * `scopeSql` stays exactly as 0012 wrote it and the rest of the clause is composed BESIDE
+ * it — same function, more predicates, still one place. The point of the little class is
+ * that a clause and its bound values are added in the same call, so they cannot drift out
+ * of step, which is the only way a hand-built parameter list ever goes wrong.
+ *
+ * An absent or empty facet adds nothing at all. "No filter" and "filter matching nothing"
+ * are different questions and only one of them is what an unchecked chip means.
+ */
+class Where {
+  readonly parts: string[] = [];
+  readonly params: Param[] = [];
+
+  add(clause: string, ...values: Param[]): this {
+    this.parts.push(clause);
+    this.params.push(...values);
+    return this;
+  }
+  eq(col: string, value: string | undefined): this {
+    return value ? this.add(`${col} = ?`, value) : this;
+  }
+  /** `col IN (?,?,…)`. Placeholders, never interpolation — these are values. */
+  in(col: string, values: readonly string[] | undefined): this {
+    if (!values?.length) return this;
+    return this.add(`${col} IN (${values.map(() => '?').join(',')})`, ...values);
+  }
+  /** `lower(a) LIKE ? OR lower(b) LIKE ?` — the same needle bound once per column. */
+  like(cols: string[], q: string | undefined): this {
+    const needle = (q ?? '').trim().toLowerCase();
+    if (!needle) return this;
+    return this.add(
+      `(${cols.map((c) => `lower(${c}) LIKE ?`).join(' OR ')})`,
+      ...cols.map(() => `%${needle}%`),
+    );
+  }
+  clause(): string {
+    return this.parts.length ? this.parts.join(' AND ') : '1=1';
+  }
+}
+
+/**
+ * The columns a `q` searches, per list — deliberately the columns the LIST SHOWS.
+ *
+ * The topbar box narrows what is on screen by matching `textContent`; the server matches
+ * these. If the two sets disagree, typing the same word twice gives two different answers,
+ * which is worse than either one alone.
+ */
+const CLIENT_Q_COLS = ['name', 'code', `json_extract(branding,'$.companyInfo')`];
+const CUSTOMER_Q_COLS = ['c.persons', 'c.email', 'c.code'];
+const TICKET_Q_COLS = ['t.title', 't.ticketId', 't.summary', 't.waitingOn', 'cu.persons'];
+
 interface TicketRow {
   id: string; customerId: string; ticketId: string; title: string;
   dateInitiated: string; status: string; dateLastUpdated: string;
@@ -87,10 +147,13 @@ const toTicket = (r: TicketRow): Ticket => ({
 class SqliteClientRepository implements ClientRepository {
   constructor(private d: Database) {}
 
-  list(scope: ListScope = 'live'): Client[] {
-    return this.d.query<ClientRow, []>(
-      `SELECT * FROM clients WHERE ${scopeSql(scope, ['archivedAt'])} ORDER BY name`,
-    ).all().map(toClient);
+  list(query: ClientQuery = {}): Client[] {
+    const w = new Where()
+      .add(scopeSql(query.scope ?? 'live', ['archivedAt']))
+      .like(CLIENT_Q_COLS, query.q);
+    return this.d.query<ClientRow, Param[]>(
+      `SELECT * FROM clients WHERE ${w.clause()} ORDER BY name`,
+    ).all(...w.params).map(toClient);
   }
   get(id: string): Client | null {
     const r = this.d.query<ClientRow, [string]>('SELECT * FROM clients WHERE id = ?').get(id);
@@ -133,27 +196,32 @@ class SqliteClientRepository implements ClientRepository {
 class SqliteCustomerRepository implements CustomerRepository {
   constructor(private d: Database) {}
 
-  list(clientId?: string, scope: ListScope = 'live'): Customer[] {
-    const where = scopeSql(scope, ['c.archivedAt', 'cl.archivedAt']);
-    const sql = `SELECT c.* FROM customers c JOIN clients cl ON cl.id = c.clientId
-                 WHERE ${where}${clientId ? ' AND c.clientId = ?' : ''} ORDER BY c.code`;
-    const rows = clientId
-      ? this.d.query<CustomerRow, [string]>(sql).all(clientId)
-      : this.d.query<CustomerRow, []>(sql).all();
-    return rows.map(toCustomer);
+  list(query: CustomerQuery = {}): Customer[] {
+    const w = new Where()
+      .add(scopeSql(query.scope ?? 'live', ['c.archivedAt', 'cl.archivedAt']))
+      .eq('c.clientId', query.clientId)
+      .like(CUSTOMER_Q_COLS, query.q);
+    return this.d.query<CustomerRow, Param[]>(
+      `SELECT c.* FROM customers c JOIN clients cl ON cl.id = c.clientId
+       WHERE ${w.clause()} ORDER BY c.code`,
+    ).all(...w.params).map(toCustomer);
   }
   get(id: string): Customer | null {
     const r = this.d.query<CustomerRow, [string]>('SELECT * FROM customers WHERE id = ?').get(id);
     return r ? toCustomer(r) : null;
   }
+  /**
+   * The capped type-ahead. Same predicate as `list({ q })` — built from the same columns —
+   * with a ceiling, because this one answers a keystroke rather than a page.
+   */
   search(query: string, scope: ListScope = 'live'): Customer[] {
-    const like = `%${query.toLowerCase()}%`;
-    return this.d.query<CustomerRow, [string, string, string]>(
+    const w = new Where()
+      .add(scopeSql(scope, ['c.archivedAt', 'cl.archivedAt']))
+      .like(CUSTOMER_Q_COLS, query);
+    return this.d.query<CustomerRow, Param[]>(
       `SELECT c.* FROM customers c JOIN clients cl ON cl.id = c.clientId
-       WHERE ${scopeSql(scope, ['c.archivedAt', 'cl.archivedAt'])}
-         AND (lower(c.persons) LIKE ? OR lower(c.email) LIKE ? OR lower(c.code) LIKE ?)
-       ORDER BY c.code LIMIT 50`,
-    ).all(like, like, like).map(toCustomer);
+       WHERE ${w.clause()} ORDER BY c.code LIMIT 50`,
+    ).all(...w.params).map(toCustomer);
   }
   create(input: NewCustomer): Customer {
     const code = input.code || customerCodeFromPersons(input.persons);
@@ -191,28 +259,33 @@ class SqliteCustomerRepository implements CustomerRepository {
 class SqliteTicketRepository implements TicketRepository {
   constructor(private d: Database) {}
 
-  list(customerId?: string, scope: ListScope = 'live'): Ticket[] {
+  list(query: TicketQuery = {}): Ticket[] {
     // Two joins, because a ticket is hidden by EITHER ancestor. There is no `tickets.archivedAt`
     // on purpose: the human asked to archive customers and clients, and a ticket that is
     // finished already has a status that says so.
-    const where = scopeSql(scope, ['cu.archivedAt', 'cl.archivedAt']);
-    const sql = `SELECT t.* FROM tickets t
-                 JOIN customers cu ON cu.id = t.customerId
-                 JOIN clients cl ON cl.id = cu.clientId
-                 WHERE ${where}${customerId ? ' AND t.customerId = ?' : ''}
-                 ORDER BY t.createdAt DESC`;
-    const rows = customerId
-      ? this.d.query<TicketRow, [string]>(sql).all(customerId)
-      : this.d.query<TicketRow, []>(sql).all();
-    return rows.map(toTicket);
+    //
+    // Those same two joins are what makes `clientId` free: "this client's tickets" is a
+    // predicate on a table the query was already reading.
+    const w = new Where()
+      .add(scopeSql(query.scope ?? 'live', ['cu.archivedAt', 'cl.archivedAt']))
+      .eq('t.customerId', query.customerId)
+      .eq('cu.clientId', query.clientId)
+      .in('t.status', query.status)
+      .like(TICKET_Q_COLS, query.q);
+    return this.d.query<TicketRow, Param[]>(
+      `SELECT t.* FROM tickets t
+       JOIN customers cu ON cu.id = t.customerId
+       JOIN clients cl ON cl.id = cu.clientId
+       WHERE ${w.clause()} ORDER BY t.createdAt DESC`,
+    ).all(...w.params).map(toTicket);
   }
   get(id: string): Ticket | null {
     const r = this.d.query<TicketRow, [string]>('SELECT * FROM tickets WHERE id = ?').get(id);
     return r ? toTicket(r) : null;
   }
-  byStatus(): Record<string, Ticket[]> {
+  byStatus(query: TicketQuery = {}): Record<string, Ticket[]> {
     const out: Record<string, Ticket[]> = {};
-    for (const t of this.list()) (out[t.status] ??= []).push(t);
+    for (const t of this.list(query)) (out[t.status] ??= []).push(t);
     return out;
   }
   create(input: NewTicket): Ticket {
@@ -279,6 +352,62 @@ class SqliteAuditRepository implements AuditRepository {
       'SELECT * FROM audit ORDER BY at DESC LIMIT ?',
     ).all(limit);
   }
+
+  /**
+   * The FROM clause every filtered audit read shares (0014).
+   *
+   * The three left joins are what let `q` match a record's NAME. An audit row stores an
+   * entity and an id, and nobody has ever searched for an id — so without them "filter the
+   * activity by this customer" is a question the trail cannot answer, which is exactly the
+   * gap `/activity` was papering over by filtering two hundred rows in the DOM.
+   *
+   * LEFT, not inner: the trail outlives the records it points at, and a deleted record's
+   * history is still history.
+   *
+   * The trail is never scoped. 0012 was explicit — "an archived record's history is exactly
+   * what someone asks for later" — and nothing here changes it.
+   */
+  private static readonly FROM = `FROM audit a
+     LEFT JOIN clients   cl ON a.entity = 'client'   AND cl.id = a.entityId
+     LEFT JOIN customers cu ON a.entity = 'customer' AND cu.id = a.entityId
+     LEFT JOIN tickets   t  ON a.entity = 'ticket'   AND t.id  = a.entityId`;
+
+  private static where(q: AuditQuery): Where {
+    return new Where()
+      .in('a.entity', q.entity)
+      .in('a.action', q.action)
+      .in('a.actor', q.actor)
+      // `at` is a full ISO timestamp; the bounds are dates. `>= 'YYYY-MM-DD'` and
+      // `<= 'YYYY-MM-DD' || 'Z'` (which sorts after every time on that day) make BOTH
+      // ends inclusive, which is what a reader of a date range expects.
+      .add(q.from ? 'a.at >= ?' : '1=1', ...(q.from ? [q.from] : []))
+      .add(q.to ? 'a.at <= ?' : '1=1', ...(q.to ? [`${q.to}Z`] : []))
+      .like(['a.actor', 'cl.name', 'cu.persons', 'cu.email', 't.title', 't.ticketId'], q.q);
+  }
+
+  query(q: AuditQuery = {}): AuditEntry[] {
+    const w = SqliteAuditRepository.where(q);
+    // The limit is applied AFTER the predicate. `recent(200)` did it the other way round,
+    // which is how "Showing 3 of 200" came to describe the last two hundred rows rather
+    // than the trail — a wrong answer, delivered confidently.
+    const limit = q.limit ?? 200;
+    return this.d.query<AuditEntry, Param[]>(
+      `SELECT a.* ${SqliteAuditRepository.FROM} WHERE ${w.clause()} ORDER BY a.at DESC LIMIT ?`,
+    ).all(...w.params, limit);
+  }
+
+  count(q: AuditQuery = {}): number {
+    const w = SqliteAuditRepository.where(q);
+    return this.d.query<{ n: number }, Param[]>(
+      `SELECT count(*) AS n ${SqliteAuditRepository.FROM} WHERE ${w.clause()}`,
+    ).get(...w.params)?.n ?? 0;
+  }
+
+  actors(): string[] {
+    return this.d.query<{ actor: string }, []>(
+      'SELECT DISTINCT actor FROM audit ORDER BY actor',
+    ).all().map((r) => r.actor);
+  }
 }
 
 // --- documents --------------------------------------------------------------
@@ -286,10 +415,17 @@ class SqliteAuditRepository implements AuditRepository {
 class SqliteDocumentRepository implements DocumentRepository {
   constructor(private d: Database) {}
 
-  list(): DocumentRef[] {
-    return this.d.query<DocumentRef, []>(
-      'SELECT * FROM documents ORDER BY createdAt DESC',
-    ).all();
+  list(query: DocumentQuery = {}): DocumentRef[] {
+    // No scope facet, deliberately (0012): "the documents are still real files in Drive; a
+    // document list that silently shortens is worse than one that shows where a file came
+    // from." `/files` is an index of bytes, not a view of live records.
+    const w = new Where()
+      .in('source', query.source)
+      .in('storage', query.storage)
+      .like(['name', 'mimeType'], query.q);
+    return this.d.query<DocumentRef, Param[]>(
+      `SELECT * FROM documents WHERE ${w.clause()} ORDER BY createdAt DESC`,
+    ).all(...w.params);
   }
   forEntity(entity: string, entityId: string): DocumentRef[] {
     return this.d.query<DocumentRef, [string, string]>(

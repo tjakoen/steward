@@ -1,7 +1,7 @@
 // Services own the verbs. Every mutation writes an audit row in the same call.
 // Routes / the /intent door call these; they never touch repositories directly.
 
-import type { Repositories, NewClient, NewCustomer, NewTicket } from '../repo/ports.ts';
+import type { DocumentQuery, Repositories, NewClient, NewCustomer, NewTicket } from '../repo/ports.ts';
 import type {
   AuditEntity, Client, Customer, DocumentRef, DocumentStorage,
   Ticket, TicketStatus, ProgressEntry,
@@ -86,12 +86,12 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
     /** What archiving a record would take out of the lists with it — for the confirmation. */
     archiveImpact(entity: 'client' | 'customer', id: string): { customers: number; tickets: number } {
       if (entity === 'customer') {
-        return { customers: 0, tickets: repos.tickets.list(id, 'all').length };
+        return { customers: 0, tickets: repos.tickets.list({ customerId: id, scope: 'all' }).length };
       }
-      const customers = repos.customers.list(id, 'all');
+      const customers = repos.customers.list({ clientId: id, scope: 'all' });
       return {
         customers: customers.length,
-        tickets: customers.reduce((n, c) => n + repos.tickets.list(c.id, 'all').length, 0),
+        tickets: customers.reduce((n, c) => n + repos.tickets.list({ customerId: c.id, scope: 'all' }).length, 0),
       };
     },
 
@@ -144,8 +144,8 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
     documentsFor(entity: string, entityId: string): DocumentRef[] {
       return repos.documents.forEntity(entity, entityId);
     },
-    listDocuments(): DocumentRef[] {
-      return repos.documents.list();
+    listDocuments(query: DocumentQuery = {}): DocumentRef[] {
+      return repos.documents.list(query);
     },
     getDocument(id: string): DocumentRef | null {
       return repos.documents.get(id);

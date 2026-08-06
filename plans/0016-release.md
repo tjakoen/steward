@@ -380,3 +380,31 @@ failure mode is not a broken update but an **unbootable install**. It belongs in
 - **Anything installer-shaped** — MSI, notarized DMG, Homebrew tap, winget. A single downloaded
   file with a documented override is the whole distribution story for two people, and every one
   of those alternatives brings its own signing requirement back in through the side door.
+
+## Two things added 2026-08-06, after the first real setup session
+
+**The API key's referrer restriction is a release blocker in waiting.** The operator restricted
+`GOOGLE_API_KEY` to `http://localhost:3211/*`, which is right for this machine and wrong for a
+shipped binary: `config.ts` defaults the port to **3000**, and `app/launch.ts` falls back to an
+**OS-chosen** port when the preferred one is taken. So a released app's Picker referrer is
+normally `http://localhost:3000/*` and occasionally an arbitrary high port that no allowlist can
+name.
+
+Leaving it as `:3211` for now costs nothing — it is a Cloud Console setting, changed in half a
+minute, and no code depends on it. It is recorded here so it cannot be forgotten:
+
+- **Before the tag:** add `http://localhost:3000/*` to the key's HTTP-referrer list.
+- **The fallback port has no allowlist answer.** Google's referrer restrictions cannot express a
+  port range. Everything else — Drive upload and download, the digest, PDFs, the updater — is
+  unaffected, because only the Picker runs in a browser against that key. The honest options are
+  to say so in the UI when the app is not on its default port, or to make the packaged app fail
+  loudly rather than silently take a different one. Decide in this plan; do not let it be
+  discovered by a user whose port 3000 was busy.
+
+**A GRAIN upstream candidate: the snackbar.** 0012 built one because GRAIN ships no toast —
+`components/molecules/` has `callout` and `status-list`, neither of which is a transient
+notification. It is a single live region with a polite announcement, a self-clearing success and
+a sticky failure, and nothing in it is STEWARD-specific. The operator asked for it to go
+upstream **after they have used it for a while**, which is the right order: 0007 established
+that upstreaming to GRAIN means a published version and a release that cannot be withdrawn, so
+the component earns its way there by being lived with first.

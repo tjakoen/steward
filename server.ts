@@ -979,13 +979,23 @@ const server = listen((port) => Bun.serve({
 
         const time = parseTime(value('time'));
         if (!time) return backTo('/settings?digest=bad-time');
+
+        // Validated HERE as well as by the browser, because `type="email"` is the thing
+        // that rejects an address that looks perfect on screen: a pasted trailing space
+        // is invisible, and the From box is SEEDED FROM Username, which is not required
+        // to be an address at all. A native bubble saying "enter a valid email" over a
+        // field that plainly holds one is the least explicable error the app can give.
+        const to = value('to'), from = value('from');
+        const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+        if (to && !looksLikeEmail(to)) return backTo('/settings?digest=bad-to');
+        if (from && !looksLikeEmail(from)) return backTo('/settings?digest=bad-from');
         repos.settings.set(DIGEST_KEYS.time, time);
         repos.settings.set(DIGEST_KEYS.enabled, form.get('enabled') ? '1' : '0');
-        repos.settings.set(DIGEST_KEYS.to, value('to'));
+        repos.settings.set(DIGEST_KEYS.to, to);
         repos.settings.set(DIGEST_KEYS.host, value('host'));
         repos.settings.set(DIGEST_KEYS.port, String(Number(value('port')) || SMTP_PORT));
         repos.settings.set(DIGEST_KEYS.user, value('user'));
-        repos.settings.set(DIGEST_KEYS.from, value('from'));
+        repos.settings.set(DIGEST_KEYS.from, from);
 
         // A password field submitted EMPTY means "leave it alone", not "erase it" —
         // the card never renders the stored value back, so an empty box is the
@@ -1559,6 +1569,8 @@ const server = listen((port) => Bun.serve({
           const notes: Record<string, string> = {
             saved: 'Saved.',
             'bad-time': 'That is not a time of day. Use HH:MM, like 08:00.',
+            'bad-to': 'The To address is not an email address. Check for a stray space — a pasted one is invisible.',
+            'bad-from': 'The From address is not an email address. Leave it blank to use the username, unless the username is not an address either.',
           };
           const noticed = said
             ? `<p class="form-status" data-ok="${said === 'saved'}">${esc(notes[said] ?? said)}</p>`
@@ -1617,20 +1629,25 @@ const server = listen((port) => Bun.serve({
             `<input id="f_d_enabled" name="enabled" type="checkbox" value="1"${d.enabled ? ' checked' : ''}></div>` +
             row('time', 'Time', input('time', 'time', d.time),
               'Local to this machine. A day missed while the app was closed stays missed.') +
-            row('to', 'To', input('to', 'email', d.to)) +
+            // `text`, not `email`: the browser's own bubble fires before the form is sent
+            // and says "enter a valid email address" over a field holding what looks like
+            // one — a pasted trailing space, or a From seeded from a non-address username.
+            // The server validates and NAMES the problem instead. inputmode keeps the
+            // phone keyboard; spellcheck off because an address is not prose.
+            row('to', 'To', input('to', 'text', d.to, 'inputmode="email" autocomplete="email" spellcheck="false"')) +
             row('host', 'SMTP host', input('host', 'text', d.host, 'placeholder="smtp.gmail.com"')) +
             row('port', 'Port', input('port', 'number', String(d.port)),
               'Implicit TLS only. 587 with STARTTLS is not supported.') +
             row('user', 'Username', input('user', 'text', d.user)) +
             // The one control in STEWARD that must never be seeded from storage.
             rowHtml('password', 'Password', `<input id="f_d_password" name="password" type="password" value="" ` +
-              `autocomplete="new-password" placeholder="${d.hasPassword ? 'stored — leave blank to keep' : 'app password'}">`,
+              `autocomplete="new-password" placeholder="${d.hasPassword ? '•'.repeat(Math.min(d.passwordLength, 32)) : 'app password'}">`,
               // The shape, never the secret. A 535 from Gmail is almost always an account
               // password rather than an app password, and without this the card cannot
               // tell the operator apart from someone who simply typed it wrong.
               d.hasPassword
-                ? `A password is stored — ${d.passwordLength} characters, never shown again, ` +
-                  `never audited, never in a URL.` +
+                ? `A password is stored — ${d.passwordLength} characters. Leave this blank to ` +
+                  `keep it. It is never shown again, never audited and never put in a URL.` +
                   (d.host.includes('gmail') && !d.passwordLooksLikeAppPassword
                     ? ` <strong>It does not look like a Gmail app password</strong>, which is ` +
                       `16 letters. Gmail refuses account passwords over SMTP with ` +
@@ -1641,7 +1658,8 @@ const server = listen((port) => Bun.serve({
                     : '')
                 : 'For Gmail this is an app password, not the account password. ' +
                   'Spaces are stripped, so paste it exactly as Google shows it.') +
-            row('from', 'From', input('from', 'email', d.from), 'Blank means the username above.') +
+            row('from', 'From', input('from', 'text', d.from, 'inputmode="email" spellcheck="false"'),
+              'Blank means the username above.') +
             `<div class="form-controls"><button type="submit" class="btn" data-variant="soft">Save</button>` +
             (d.hasPassword
               ? `<button type="submit" class="btn" name="forgetPassword" value="1">Forget password</button>`

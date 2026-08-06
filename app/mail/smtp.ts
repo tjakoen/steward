@@ -64,7 +64,8 @@ export interface SendResult {
 }
 
 interface Conversation {
-  next(): Promise<Reply>;
+  /** `what` names the step, so a stall says which one rather than just naming the host. */
+  next(what: string): Promise<Reply>;
   say(line: string): void;
   write(raw: string): void;
   close(): void;
@@ -76,7 +77,7 @@ interface Conversation {
  */
 async function converse(config: SmtpConfig, message: string, to: string, c: Conversation): Promise<void> {
   const expect = async (what: string, ...codes: number[]): Promise<Reply> => {
-    const r = await c.next();
+    const r = await c.next(what);
     if (!codes.includes(r.code)) {
       throw new Error(`${what} was refused: ${r.code} ${r.lines.join(' ').trim()}`);
     }
@@ -122,8 +123,63 @@ export interface SmtpTransport {
   }>;
 }
 
+/**
+ * A byte queue over a sink that may accept less than it is given.
+ *
+ * `socket.write` returns how many bytes it ACCEPTED, which is not always all of them:
+ * once the kernel and TLS buffers are full it takes what it can and the rest is the
+ * caller's problem until the socket drains. Every SMTP command is a few dozen bytes and
+ * never hits that, so discarding the return value worked perfectly against a scripted
+ * test server — and then truncated the first real message.
+ *
+ * A digest carries a PDF per client, base64-encoded: a 55 KB attachment is ~74 KB on the
+ * wire, comfortably past the buffer. The server got a body with no terminating
+ * `\r\n.\r\n`, so it waited for the rest while we waited for its `250`, and twenty
+ * seconds later the timeout reported the host as having "stopped responding". It was
+ * still listening. We had stopped talking.
+ *
+ * Exported for its own test: a real short write needs a full TLS buffer to reproduce,
+ * and this is the whole of the logic that has to be right.
+ */
+export function makeByteQueue(sink: (bytes: Uint8Array) => number) {
+  const encoder = new TextEncoder();
+  let pending: Uint8Array | null = null;
+
+  const flush = (): void => {
+    while (pending && pending.length) {
+      const wrote = sink(pending);
+      if (wrote <= 0) return;               // still full; the drain callback resumes this
+      pending = pending.subarray(wrote);
+    }
+    pending = null;
+  };
+
+  return {
+    /**
+     * Encoded to bytes BEFORE queueing: a short write is counted in bytes, and slicing a
+     * UTF-8 string by a byte count is how you cut a character in half.
+     */
+    push(raw: string): void {
+      const bytes = encoder.encode(raw);
+      pending = pending && pending.length ? concat(pending, bytes) : bytes;
+      flush();
+    },
+    drain: flush,
+    /** Bytes still waiting. Zero means everything reached the socket. */
+    unsent: (): number => pending?.length ?? 0,
+  };
+}
+
+const concat = (a: Uint8Array, b: Uint8Array): Uint8Array => {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+};
+
 const bunTransport: SmtpTransport = {
   async open(config, onData) {
+    let queue: ReturnType<typeof makeByteQueue> | null = null;
     const socket = await Bun.connect({
       hostname: config.host,
       port: config.port,
@@ -132,12 +188,14 @@ const bunTransport: SmtpTransport = {
       tls: true,
       socket: {
         data(_s, data) { onData(new TextDecoder().decode(data)); },
+        drain() { queue?.drain(); },
         error() { /* surfaced by the reply timeout below */ },
         close() { /* ditto */ },
       },
     });
+    queue = makeByteQueue((bytes) => socket.write(bytes));
     return {
-      write: (raw) => { socket.write(raw); },
+      write: (raw) => queue!.push(raw),
       close: () => { try { socket.end(); } catch { /* already gone */ } },
     };
   },
@@ -172,7 +230,7 @@ export async function sendMail(
     conn = await (opts.transport ?? bunTransport).open(config, feed);
     const socket = conn;
     const c: Conversation = {
-      next: () => {
+      next: (what: string) => {
         const ready = queued.shift();
         if (ready) return Promise.resolve(ready);
         return new Promise<Reply>((resolve, reject) => {
@@ -180,7 +238,9 @@ export async function sendMail(
           setTimeout(() => {
             if (waiter !== resolve) return;
             waiter = null;
-            reject(new Error(`${config.host} stopped responding`));
+            // Naming the step is the difference between "the host is down" and "we sent a
+            // truncated body" — which is exactly the pair this timeout had to tell apart.
+            reject(new Error(`${config.host} stopped responding while waiting for ${what}`));
           }, TIMEOUT_MS).unref?.();
         });
       },

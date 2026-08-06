@@ -1,5 +1,7 @@
 import { test, expect } from 'bun:test';
-import { makeReplyParser, sendMail, type SmtpConfig, type SmtpTransport } from './smtp.ts';
+import {
+  makeByteQueue, makeReplyParser, sendMail, type SmtpConfig, type SmtpTransport,
+} from './smtp.ts';
 
 const CONFIG: SmtpConfig = {
   host: 'smtp.example.com', port: 465, user: 'me@example.com',
@@ -137,4 +139,75 @@ test('no recipient is refused before anything is dialled', async () => {
     transport: { async open() { throw new Error('should not connect'); } },
   });
   expect(r.error).toContain('no recipient');
+});
+
+// ---- the short write that truncated the first real message ------------------
+//
+// Everything above passes against a scripted server that accepts whole strings. A real
+// socket does not: `write` returns the bytes it took, and a base64 PDF is far past the
+// TLS buffer. The body arrived without its terminator, Gmail waited for the rest, and
+// the failure surfaced 20s later as "smtp.gmail.com stopped responding".
+
+/** A sink that never takes more than `cap` bytes at a time, like a full socket. */
+function cappedSink(cap: number) {
+  const got: number[] = [];
+  let closed = false;
+  return {
+    received: () => new Uint8Array(got),
+    stall: () => { closed = true; },
+    resume: () => { closed = false; },
+    write: (bytes: Uint8Array): number => {
+      if (closed) return 0;
+      const n = Math.min(cap, bytes.length);
+      for (let i = 0; i < n; i++) got.push(bytes[i]);
+      return n;
+    },
+  };
+}
+
+const decode = (b: Uint8Array) => new TextDecoder().decode(b);
+
+test('a payload larger than one write still arrives whole', () => {
+  const sink = cappedSink(8);
+  const q = makeByteQueue(sink.write);
+  const body = 'x'.repeat(1000) + '\r\n.\r\n';
+  q.push(body);
+  expect(q.unsent()).toBe(0);
+  expect(decode(sink.received())).toBe(body);
+  // The terminator is the whole point: without it the server never answers.
+  expect(decode(sink.received()).endsWith('\r\n.\r\n')).toBe(true);
+});
+
+test('a stalled socket holds the remainder, and drain sends it', () => {
+  const sink = cappedSink(16);
+  const q = makeByteQueue(sink.write);
+  sink.stall();
+  q.push('hello world, this is longer than one write');
+  expect(q.unsent()).toBeGreaterThan(0);          // nothing lost, nothing sent
+  expect(sink.received()).toHaveLength(0);
+
+  sink.resume();
+  q.drain();
+  expect(q.unsent()).toBe(0);
+  expect(decode(sink.received())).toBe('hello world, this is longer than one write');
+});
+
+test('writes queued while stalled keep their order', () => {
+  const sink = cappedSink(4);
+  const q = makeByteQueue(sink.write);
+  sink.stall();
+  q.push('AAAA');
+  q.push('BBBB');
+  sink.resume();
+  q.drain();
+  expect(decode(sink.received())).toBe('AAAABBBB');
+});
+
+test('a multi-byte character is never cut in half by a short write', () => {
+  // The queue counts BYTES, so slicing a UTF-8 string by a byte count would split a
+  // character across two writes and corrupt it. Encoding first is what prevents that.
+  const sink = cappedSink(1); // one byte at a time: every character is split if it can be
+  const q = makeByteQueue(sink.write);
+  q.push('née — café ☕');
+  expect(decode(sink.received())).toBe('née — café ☕');
 });

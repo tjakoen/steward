@@ -494,6 +494,12 @@ class SqliteSettingsRepository implements SettingsRepository {
   remove(key: string): void {
     this.d.run('DELETE FROM settings WHERE key = ?', [key]);
   }
+  /** Keys only. The values are read one at a time through `get`, like everything else. */
+  keys(): string[] {
+    return this.d.query<{ key: string }, []>(
+      'SELECT key FROM settings ORDER BY key',
+    ).all().map((r) => r.key);
+  }
 }
 
 // --- factory ---------------------------------------------------------------

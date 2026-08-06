@@ -150,6 +150,16 @@ export interface SettingsRepository {
   get(key: string): string | null;
   set(key: string, value: string): void;
   remove(key: string): void;
+  /**
+   * Every key currently stored (0015).
+   *
+   * The bug report redacts the CONTENTS of this table out of the text it publishes, and
+   * it does that as a sweep rather than from a list of known secret keys — a list would
+   * have to be edited by whoever adds the next secret, and they will not, because their
+   * plan is about something else. "Nothing in `settings` leaves this machine" only stays
+   * true without maintenance if the table can be enumerated.
+   */
+  keys(): string[];
 }
 
 export interface Repositories {

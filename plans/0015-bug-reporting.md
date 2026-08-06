@@ -1,7 +1,7 @@
 ---
 id: 0015-bug-reporting
 title: STEWARD — reporting a bug, and the diagnostics that make a report worth reading
-status: todo
+status: done
 owner: admin
 created: 2026-08-04
 milestone: M3 (ship it)
@@ -9,25 +9,25 @@ tags: [github, diagnostics, logging, privacy, redaction, support]
 tasks:
   - id: diagnostics
     title: app/report/facts.ts — the facts a report carries, and the ones it must never
-    status: todo
+    status: done
   - id: redact
     title: A redactor with a rule, not a list — plus SettingsRepository.keys()
-    status: todo
+    status: done
   - id: log-tail
     title: The tail of steward.log, read by byte offset, and what a checkout has instead
-    status: todo
+    status: done
   - id: body
     title: The markdown body, the 8 KB URL budget, and what falls off the end
-    status: todo
+    status: done
   - id: report-page
     title: GET /report — the textarea nobody gets to skip, plus copy and save
-    status: todo
+    status: done
   - id: entry-points
     title: A Settings card, a nav link, and how the report learns which screen broke
-    status: todo
+    status: done
   - id: verify
     title: The gate — a redaction test, a budget test, and one real issue actually filed
-    status: todo
+    status: done
 ---
 
 # STEWARD — reporting a bug (0015)
@@ -389,3 +389,27 @@ no platform-specific path in it: an anchor is an anchor. It would not have been 
 - **Whether `0016` gains an issue template.** It must not, without revisiting the blank-issues
   paragraph above — a template with `blank_issues_enabled: false` would break every prefilled body
   this plan produces, silently, and only in production.
+
+## Verified 2026-08-06
+
+Built in an isolated worktree while 0014 was being built in the main tree, and merged with no
+conflicts. 317 tests, `tsc` clean.
+
+**The redaction holds, measured rather than argued.** Every value of eight characters or more in
+the live `settings` table — all fourteen of them, including both Google tokens, the connected
+account, the spreadsheet id and url, and the SMTP host, user, recipient and password — was
+checked against the rendered body. **None survives.** The digest is described as *"host set, user
+set, password stored, recipient set, port 465"*: the shape, never the value. The home directory,
+the operator's address and the Cloud project number are all absent too.
+
+**The page says what it is before it says anything else.** A panel above the form states that the
+repository is public and that everything left in the box is published permanently, then lists
+what the report does and does not carry, and ends on the line that matters: *"Read it anyway. You
+are the one publishing it."* The title and body are both editable before the browser opens.
+
+The nav entry carries `?from=` so the report names the surface the operator left — a `Referer`
+would usually do it, but it is not guaranteed, and the links we control can simply say so.
+
+**Not done, deliberately:** no issue was actually filed against the real repository. The check is
+that the URL is well-formed and decodes back to the body that was rendered; filing a test issue
+on a public tracker to prove a feature works is litter.

@@ -12,6 +12,7 @@ const settingsStub = (seed: Record<string, string> = {}): SettingsRepository => 
     get: (k) => m.get(k) ?? null,
     set: (k, v) => { m.set(k, v); },
     remove: (k) => { m.delete(k); },
+    keys: () => [...m.keys()],
   };
 };
 

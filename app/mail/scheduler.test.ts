@@ -9,6 +9,7 @@ function memorySettings(seed: Record<string, string> = {}): SettingsRepository {
     get: (k) => map.get(k) ?? null,
     set: (k, v) => { map.set(k, v); },
     remove: (k) => { map.delete(k); },
+    keys: () => [...map.keys()],
   };
 }
 

@@ -70,6 +70,8 @@ import { componentsCss, embeddedSource, isAsset, serveAsset } from './app/assets
 import { listen, openBrowser, probeExisting } from './app/launch.ts';
 import { applyUpdate, checkForUpdate, cleanupOldBinaries } from './app/update.ts';
 import { dataDir } from './app/paths.ts';
+import { buildReport } from './app/report/index.ts';
+import { reportCard, reportPage } from './app/view/report.ts';
 
 // ---- storage + services ----
 db(); // ensure schema exists
@@ -269,7 +271,15 @@ const servePage = makePageServer(bunRuntime, config.pagesDir, renderAppPage, PAG
 // Nav marks are GRAIN sprite glyphs, not text characters: `◆ ▤ ☰ ◧ ❐ ↻ ⚙ ?`
 // came from eight different Unicode blocks and sat on eight different baselines
 // at eight optical weights. The sprite is one 24×24 grid at one stroke width.
-interface NavItem { label: string; href: string; ico: IconName; count?: () => number; }
+interface NavItem {
+  label: string; href: string; ico: IconName; count?: () => number;
+  /**
+   * Carry the current path as `?from=` (0015). `/report` prints which surface the
+   * operator left, and a `Referer` is sent by default on a same-origin click but is not
+   * guaranteed — so the links we control say it outright.
+   */
+  carryFrom?: boolean;
+}
 const NAV_MAIN: NavItem[] = [
   { label: 'Home', href: '/', ico: 'loop' },
 ];
@@ -284,6 +294,7 @@ const NAV_ACTIVITY: NavItem[] = [
 ];
 const NAV_FOOT: NavItem[] = [
   { label: 'Help', href: '/help', ico: 'knowledge' },
+  { label: 'Report a bug', href: '/report', ico: 'send', carryFrom: true },
   { label: 'Settings', href: '/settings', ico: 'settings' },
 ];
 
@@ -296,7 +307,10 @@ const isActive = (item: NavItem, path: string): boolean =>
 const navLink = (item: NavItem, path: string): string => {
   const active = isActive(item, path) ? ' aria-current="page"' : '';
   const count = item.count ? `<span class="nav-item__count">${item.count()}</span>` : '';
-  return `<a class="nav-item" href="${item.href}"${active}>${icon(item.ico, 'nav__ico', 'sm')}` +
+  const href = item.carryFrom && !isActive(item, path)
+    ? `${item.href}?from=${encodeURIComponent(path)}`
+    : item.href;
+  return `<a class="nav-item" href="${href}"${active}>${icon(item.ico, 'nav__ico', 'sm')}` +
     `<span class="nav-item__label">${esc(item.label)}</span>${count}</a>`;
 };
 
@@ -1850,6 +1864,31 @@ const server = listen((port) => Bun.serve({
 
     // --- Home + Settings (shell routes, replacing the static pages) ---
     '/': { GET: () => layout('Home', homePage(), { path: '/' }) },
+
+    // A plain page, deliberately NOT a STEWARD_ACTIONS verb (0015). A verb is by
+    // construction a thing the reasoner can invoke because a sentence asked it to, and
+    // this feature's whole design rests on a human reading the exact published text
+    // first. There is also nothing to dispatch: sending happens in the browser, by
+    // navigation, so a verb would be a door onto an empty room.
+    '/report': {
+      GET: async (req: Request) => {
+        const here = new URL(req.url);
+        // The `Referer` first, because it is the ACTUAL address the operator left — the
+        // nav's `?from=` can only carry the coarse path the shell highlights on
+        // (`/tickets` from a ticket page). Same-origin only: a referer from elsewhere
+        // describes somebody else's site. `?from=` is then the guaranteed fallback for
+        // the browsers and settings that send no referer at all.
+        const referer = req.headers.get('referer');
+        const sameOrigin = referer?.startsWith(here.origin) ? referer : null;
+        const report = await buildReport({
+          repos,
+          google: googleAuth.status(),
+          mirror: sheetsMirror.state(),
+          screen: sameOrigin ?? here.searchParams.get('from'),
+        });
+        return layout('Report a bug', reportPage(report), { path: '/report' });
+      },
+    },
     '/settings': {
       GET: async (req: Request) => {
         const notice = new URL(req.url).searchParams.get('google');
@@ -2114,6 +2153,7 @@ const server = listen((port) => Bun.serve({
             </script>`
           : '') +
         `</div></section>` +
+        reportCard(config.packaged ? logFile() : null) +
         `<section class="panel"><div class="panel__head"><h2>Demo mode</h2></div><div class="panel__body">` +
         `<p class="muted">Load fictional data into a separate demo database. Real data is untouched.</p>` +
         `<div class="form-controls"><button type="button" class="btn" id="reset">Reset demo data</button>` +

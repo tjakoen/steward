@@ -154,6 +154,24 @@ const mirrorData = () => ({
 // One email a morning with a branded PDF per client, sent from THIS process while
 // the app is open — there is no server to host a cron, and inventing one would mean
 // a service the operator has not asked for and cannot see.
+/**
+ * A send by hand records its outcome too.
+ *
+ * Only the scheduler used to write `digest.last_result`, so the Settings card went on
+ * showing a two-day-old `535` under a **Send now** that had just worked. A card whose
+ * job is to state what is true must not report the last SCHEDULED result as the last
+ * result.
+ *
+ * `last_sent_on` is deliberately NOT written here: it is the scheduler's idempotency key,
+ * and a manual send claiming the day would silently cancel the morning's digest.
+ */
+const recordManualSend = (r: { ok: boolean; error?: string; tickets: number; attachments: number }) => {
+  repos.settings.set(DIGEST_KEYS.lastResult, r.ok
+    ? `${new Date().toISOString()} sent by hand — ${r.tickets} pending, ${r.attachments} attached`
+    : `${new Date().toISOString()} failed: ${r.error ?? 'unknown'}`);
+  return r;
+};
+
 const runDigest = (today: string, actor: string) => sendDigest({
   repos,
   print: printToPdf,
@@ -889,7 +907,7 @@ const server = listen((port) => Bun.serve({
             pushSheet: () => sheetsMirror.push(mirrorData()),
             // The same actor the door stamps on the intent — a send through this
             // door is somebody at the keyboard, not the clock.
-            sendDigest: () => runDigest(localDate(new Date()), 'human'),
+            sendDigest: () => runDigest(localDate(new Date()), 'human').then(recordManualSend),
             moveArchivedFiles,
           });
           if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
@@ -1020,7 +1038,7 @@ const server = listen((port) => Bun.serve({
     },
     '/digest/send': {
       POST: async () => {
-        const out = await runDigest(localDate(new Date()), 'human');
+        const out = recordManualSend(await runDigest(localDate(new Date()), 'human'));
         return Response.json(out, { status: out.ok ? 200 : 400 });
       },
     },

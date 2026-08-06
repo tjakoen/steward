@@ -1,7 +1,7 @@
 ---
 id: 0013-daily-digest
 title: STEWARD — a daily digest of pending tickets, and the branded document it carries
-status: in-progress
+status: done
 owner: admin
 created: 2026-08-03
 milestone: M3 (ship it)
@@ -41,9 +41,9 @@ tasks:
     status: done
   - id: verify
     title: The gate — what this Mac and a real mailbox can actually prove
-    status: in-progress
-    note: everything this Mac can prove is proven (2026-08-04); the live send is the one
-      step that cannot be faked and waits on an SMTP host from the human
+    status: done
+    note: a real email reached a real mailbox 2026-08-06, with the attachments intact.
+      It took three fixes to get there and every one of them was invisible to tsc
 ---
 
 # STEWARD — the daily digest (0013)
@@ -394,3 +394,45 @@ the **shape, never the value** — the length, and whether it looks like an app 
 when the host is Gmail and it does not, it says so and links to where to make one. A `535`
 against Gmail is almost always an account password, and that is worth naming rather than
 leaving the operator to guess between four possibilities.
+
+## The gate is passed — a real email, 2026-08-06
+
+**A real message reached a real mailbox with its attachments intact.** That was the one step
+this Mac could never fake, and it is now done, which closes the plan.
+
+It took three fixes, and the interesting thing is that **the transport's unit tests passed
+throughout**. Every one of these needed a real socket, a real account and a real payload:
+
+1. **The password carried its display spaces.** Google shows an app password as four groups of
+   four and it gets pasted that way; `.trim()` took the outer whitespace and left the three in
+   the middle. Fixed by `normalisePassword`, which strips whitespace only when what remains is
+   the app-password shape.
+2. **The username had a comma where a dot belongs** — `tjakoen,s@gmail.com`. Google has no such
+   account, and **the only word SMTP has for that is "password"**, so it answered `535` and the
+   operator went back twice to mint app passwords that could never have worked. The address
+   check was `something@something.something`, which a comma passes. It is now the character set
+   addresses actually contain, and the Username is checked whenever it holds an `@`.
+3. **The message was truncated on the wire.** `socket.write` returns how many bytes it
+   *accepted*, and the transport discarded that. SMTP commands are a few dozen bytes and never
+   hit the limit — a digest carries a PDF per client, and a 55 KB attachment is ~74 KB of base64,
+   well past the TLS buffer. Gmail got a body with no terminating `\r\n.\r\n`, waited for the
+   rest, and twenty seconds later our own timeout blamed the host: *"smtp.gmail.com stopped
+   responding"*. It was still listening. We had stopped talking.
+
+The queue behind the socket is now `makeByteQueue`, exported and tested on its own with a sink
+that accepts as little as one byte at a time — including a UTF-8 case, because it counts BYTES
+and slicing a string by a byte count cuts a character in half. And a stalled reply now names the
+step it was waiting for: *"while waiting for the message"* and *"while waiting for EHLO"* are
+different bugs, and nothing in the old message told them apart.
+
+**One more thing the working feature exposed.** Only the scheduler wrote
+`digest.last_result`, so the Settings card went on displaying a two-day-old `535` underneath a
+**Send now** that had just succeeded. A card whose whole job is to state what is true cannot
+report the last *scheduled* result as the last result. Manual sends record their outcome now —
+but deliberately do **not** touch `digest.last_sent_on`, which is the scheduler's idempotency
+key: a manual send claiming the day would silently cancel that morning's digest.
+
+**Lesson worth keeping.** 0013's own verify section said the live send "cannot be faked" and was
+"the gate on the plan being called done". That was correct, and it was correct for a reason
+larger than email: three real defects sat behind a fully green test suite, and the only thing
+that could find them was one real message to one real mailbox.

@@ -69,9 +69,12 @@ then `0012`, `0014`, and `0011` last — it is the only one that can corrupt dat
 Extended 2026-08-04: `0015` (bug reporting) and then `0016` (release) after those. **Nothing is
 released until every plan is done** — the human's call, recorded below.
 
-**`plans/0013-daily-digest.md` is WRITTEN** and 10 of its 11 tasks are done (2026-08-04); only
-the live SMTP send is left, and it waits on a host and app password from the human, who
-confirmed on 2026-08-04 that they have not entered them yet. **`plans/0012-archive-restore.md`
+**`plans/0013-daily-digest.md` IS CLOSED (2026-08-06).** A real email reached a real mailbox
+with its attachments intact — the one step that could not be faked. Getting there took three
+fixes that a fully green test suite could not see: an app password pasted with Google's display
+spaces, a username with a COMMA where the dot belongs (which SMTP reports as a bad *password*),
+and a truncated message because `socket.write` returns the bytes it accepted and the transport
+discarded that. **`plans/0012-archive-restore.md`
 is WRITTEN (2026-08-04, status `todo`, eight tasks).** `0011` and `0014` are still unwritten.
 
 Two things `0012` establishes that the others inherit:

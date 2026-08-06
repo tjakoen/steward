@@ -35,11 +35,18 @@ function applyOp(o) {
   // into a filtered list regardless of the query, and leave `.filter-note` showing
   // the count it computed before. That was a live bug, not a new risk.
   //
-  // The server's FACETS are not the client's to re-evaluate. The ops go to every
-  // session on /stream and the server generating one does not know each viewer's
-  // query; the markup does not always carry enough to tell either (a kanban card
-  // has `data-status`, a client row carries only its id). So the honest move is to
-  // say so and offer a correct list, rather than to guess.
+  // The server's FACETS are not the client's to re-evaluate, because the markup does
+  // not carry enough to decide: a kanban card has `data-status`, but a client row
+  // carries only its id, and no row carries the fields a date-range or a text query
+  // was matched on. So an arriving row is ANNOUNCED rather than judged.
+  //
+  // One correction, made after checking rather than assuming: an earlier version of
+  // this comment said the ops "go to every session on /stream". They do not.
+  // `stream.push(session, …)` targets ONE session (BATCH's stream also has a
+  // `broadcast`, which STEWARD does not use), so an op only ever arrives in the
+  // window that caused it. That is why the notice says the record may no longer
+  // match rather than that something changed "elsewhere" — elsewhere is the one
+  // place it cannot have come from.
   for (const inp of document.querySelectorAll('[data-filter]')) {
     if (inp.value) applyFilter(inp);
   }
@@ -66,8 +73,8 @@ function announceStale() {
   staleCount++;
   note.hidden = false;
   note.textContent = staleCount === 1
-    ? '1 record changed elsewhere. '
-    : `${staleCount} records changed elsewhere. `;
+    ? '1 record changed and may no longer match these filters. '
+    : `${staleCount} records changed and may no longer match these filters. `;
   const link = document.createElement('a');
   link.href = location.href;
   link.textContent = 'Reload to re-apply the filters';

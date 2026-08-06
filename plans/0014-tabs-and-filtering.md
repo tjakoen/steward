@@ -1,7 +1,7 @@
 ---
 id: 0014-tabs-and-filtering
 title: STEWARD — tabs in the panel, and a filter that is more than a box that hides rows
-status: todo
+status: done
 owner: admin
 created: 2026-08-04
 milestone: M3 (ship it)
@@ -9,31 +9,31 @@ tags: [tabs, filtering, facets, grain, accessibility, drawer, sse]
 tasks:
   - id: tabs-markup
     title: panelTabs() — GRAIN's `.tab` worn by a real tablist, and not one line of new CSS
-    status: todo
+    status: done
   - id: tabs-behaviour
     title: steward-tabs.js — click, arrow keys, roving tabindex, and `?tab=` as the seam
-    status: todo
+    status: done
   - id: panel-panes
     title: Split the three panels into panes without breaking one-builder-two-places
-    status: todo
+    status: done
   - id: list-query
     title: The repository read stops being positional — ListScope grows into a query
-    status: todo
+    status: done
   - id: facet-bar
     title: The facets — GRAIN's chip-group, a GET form, and a URL you can send to someone
-    status: todo
+    status: done
   - id: list-routes
     title: The four lists read the query, and say out loud what they left out
-    status: todo
+    status: done
   - id: filter-live
     title: The topbar box becomes a refinement, and an SSE append stops lying about it
-    status: todo
+    status: done
   - id: activity-facets
     title: Activity — where the 200-row cap makes today's filter quietly dishonest
-    status: todo
+    status: done
   - id: verify
     title: The gate — tsc cannot see a tablist, and the browser pass is the whole test
-    status: todo
+    status: done
 ---
 
 # STEWARD — tabs and filtering (0014)
@@ -485,3 +485,49 @@ This plan owns the general version of the problem, and it is the same root cause
 count of record**. Whatever this plan does about facets should settle where a count comes from,
 so a filtered view, an SSE append and a server render cannot disagree about how many things
 there are.
+
+## Verified 2026-08-06, and what the pass corrected
+
+305 tests, `tsc` clean, no CSS collisions, `ADOPTED_ANYWAY` still empty. Everything below was
+executed against a faithful copy of the operator's database rather than argued from the code.
+
+**Confirmed working.** Facets are plain GETs and work with no JavaScript at all —
+`/tickets?status=Waiting` returns 1 of 6, and `/activity?action=archive` returns exactly the 5
+rows the table holds, `?action=restore` exactly the 3. `?archived=1` is an alias of `?scope=`,
+so 0012's cheap version keeps working. Tabs carry `role="tab"`/`aria-selected`, exactly one
+pane is visible, there is one Tab stop, and arrows wrap with Home/End honoured and focus
+following selection. `?tab=history` deep-links straight to that pane.
+
+**The empty state is a sentence.** Server-side: *"Nothing matches these filters. Clear them to
+see the whole list."* — with the link going to the unfiltered list. Client-side, typing into
+the box: *"Nothing here matches “zzzznomatch”. Press Escape, or use Clear, to bring back all 5
+rows."* It names the query, offers both ways out and states the total. "Showing 0 of 2" is gone.
+
+**One claim in this plan was WRONG and is corrected here.** The stale-notice section said the
+render ops "go to every session on `/stream`", and the whole justification for announcing rather
+than re-evaluating rested on it. They do not: `stream.push(session, …)` (`server.ts`) targets
+**one** session. BATCH's stream does expose a `broadcast`, and STEWARD does not use it — so an
+op only ever arrives in the window that caused it, and the cross-window scenario the notice was
+written for cannot happen.
+
+The notice is still right to exist — a record you just changed can genuinely stop matching the
+facets you are looking through, and re-evaluating that in the browser is exactly what the markup
+cannot support. But it said *"1 record changed **elsewhere**"*, and elsewhere is the one place it
+cannot have come from. It now reads *"1 record changed and may no longer match these filters"*.
+
+**A false alarm worth recording, so nobody re-opens it.** Driving Edit → Cancel from the History
+tab appeared to land back on Details, which looked exactly like the `data-form-cancel` bug this
+plan set out to fix. It is not: the Edit control lives INSIDE the Details pane and is
+`offsetParent === null` while another tab is selected, so a human cannot reach it from History.
+The synthetic click had hit a hidden button and manufactured a case that does not exist.
+`recordTab` is written on every tab activation and read back on cancel, refresh and post-save.
+
+**A verification trap that cost a full pass.** Copying a WAL-mode SQLite file with `cp` and then
+deleting the `-wal` sidecar silently throws away every commit still in the log — the copy came
+back with 18 audit rows where the source had 40, and the facets looked broken when they were
+fine. Copy all three files, or `VACUUM INTO`. Written down because the next person will do it.
+
+**Left for later, deliberately:** the drawer's focus trap was checked only to the extent that
+focus lands on a visible control and hidden panes do not swallow it (`focusFirstField` skips
+`offsetParent === null`, matching GRAIN's own liveness test). A full trap audit against GRAIN's
+`drawer.js` is not this plan's work.

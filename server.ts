@@ -985,16 +985,26 @@ const server = listen((port) => Bun.serve({
         // is invisible, and the From box is SEEDED FROM Username, which is not required
         // to be an address at all. A native bubble saying "enter a valid email" over a
         // field that plainly holds one is the least explicable error the app can give.
-        const to = value('to'), from = value('from');
-        const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+        const to = value('to'), from = value('from'), user = value('user');
+        // Deliberately stricter than "something@something.something", which was the first
+        // version and which let `tjakoen,s@gmail.com` through — a COMMA where the dot
+        // belongs. Google has no such account, so it answered 535 and the failure read as
+        // a rejected password for two days. A comma is not legal in an unquoted local part
+        // anyway; this allows the characters that actually appear in addresses and nothing
+        // else, so a typo of this shape is caught where it is made.
+        const looksLikeEmail = (v: string) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(v);
         if (to && !looksLikeEmail(to)) return backTo('/settings?digest=bad-to');
         if (from && !looksLikeEmail(from)) return backTo('/settings?digest=bad-from');
+        // The username is what SMTP authenticates with. It is not required to be an
+        // address — plenty of hosts use a bare name — so it is only checked when it looks
+        // like one was intended, i.e. it contains an @.
+        if (user.includes('@') && !looksLikeEmail(user)) return backTo('/settings?digest=bad-user');
         repos.settings.set(DIGEST_KEYS.time, time);
         repos.settings.set(DIGEST_KEYS.enabled, form.get('enabled') ? '1' : '0');
         repos.settings.set(DIGEST_KEYS.to, to);
         repos.settings.set(DIGEST_KEYS.host, value('host'));
         repos.settings.set(DIGEST_KEYS.port, String(Number(value('port')) || SMTP_PORT));
-        repos.settings.set(DIGEST_KEYS.user, value('user'));
+        repos.settings.set(DIGEST_KEYS.user, user);
         repos.settings.set(DIGEST_KEYS.from, from);
 
         // A password field submitted EMPTY means "leave it alone", not "erase it" —
@@ -1571,6 +1581,7 @@ const server = listen((port) => Bun.serve({
             'bad-time': 'That is not a time of day. Use HH:MM, like 08:00.',
             'bad-to': 'The To address is not an email address. Check for a stray space — a pasted one is invisible.',
             'bad-from': 'The From address is not an email address. Leave it blank to use the username, unless the username is not an address either.',
+            'bad-user': 'The Username has an @ but is not a valid address. Check for a comma where a dot belongs — that is what SMTP rejects as a bad password.',
           };
           const noticed = said
             ? `<p class="form-status" data-ok="${said === 'saved'}">${esc(notes[said] ?? said)}</p>`

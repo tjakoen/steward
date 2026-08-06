@@ -225,3 +225,29 @@ test('anything that is not the app-password shape keeps its spaces', () => {
   // Sixteen characters but not letters: not the shape, so left alone.
   expect(normalisePassword('abcd 1234 efgh 5678')).toBe('abcd 1234 efgh 5678');
 });
+
+// The comma that cost two days. `tjakoen,s@gmail.com` passed the first validator —
+// "something@something.something" — because a comma is not whitespace and not an @.
+// Gmail has no such account, so it answered 535 and the failure read as a rejected
+// password, which sent the operator back to Google to mint app passwords that could
+// never have worked.
+const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
+
+test('the address check rejects a comma where a dot belongs', () => {
+  expect(EMAIL.test('tjakoen,s@gmail.com')).toBe(false);
+  expect(EMAIL.test('tjakoen.s@gmail.com')).toBe(true);
+});
+
+test('it still accepts the addresses people actually have', () => {
+  for (const ok of [
+    'a@b.co', 'first.last@example.com', 'user+tag@example.co.uk',
+    'has_underscore@sub.domain.org', 'digits123@example.io', 'a%b@example.com',
+  ]) expect(EMAIL.test(ok)).toBe(true);
+});
+
+test('and rejects the shapes that reach SMTP as a bad login', () => {
+  for (const bad of [
+    'no-at-sign', 'two@@example.com', 'trailing@example', 'space in@example.com',
+    '@example.com', 'name <a@b.com>', 'a@b..com', '',
+  ]) expect(EMAIL.test(bad)).toBe(false);
+});

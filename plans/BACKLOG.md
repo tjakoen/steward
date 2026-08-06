@@ -69,6 +69,22 @@ then `0012`, `0014`, and `0011` last — it is the only one that can corrupt dat
 Extended 2026-08-04: `0015` (bug reporting) and then `0016` (release) after those. **Nothing is
 released until every plan is done** — the human's call, recorded below.
 
+## Where every plan stands, 2026-08-06
+
+`0001`–`0010` closed. `0012` archive/restore **CLOSED** (Drive round trip confirmed by the
+operator in their own Drive). `0013` daily digest **CLOSED** (a real email arrived). `0014` tabs
+and real filtering **CLOSED** (facets work with no JavaScript; both empty states are sentences).
+`0015` bug reporting **CLOSED** (built in a worktree, merged without conflict; no settings value
+of 8+ characters reaches the report body). 317 tests, `tsc` clean, everything pushed.
+
+**`0011` sheet-driven writes is the only plan left before `0016` release.** It is written and
+unbuilt, and it is the only one that can corrupt data — the sheet becomes the source of truth
+and the database is rewritten to match. Build it in the main tree with a human reviewing, not
+handed wholesale to an agent.
+
+**`0016` release is gated on `0011`** by the operator's own call: nothing is released until every
+plan is done.
+
 **`plans/0013-daily-digest.md` IS CLOSED (2026-08-06).** A real email reached a real mailbox
 with its attachments intact — the one step that could not be faked. Getting there took three
 fixes that a fully green test suite could not see: an app password pasted with Google's display

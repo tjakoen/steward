@@ -1794,6 +1794,17 @@ const server = listen((port) => Bun.serve({
           token,
           apiKey: config.google.apiKey,
           appId: config.google.projectNumber,
+          // The Picker is the ONE thing that runs in a browser against GOOGLE_API_KEY, so
+          // it is the one thing an HTTP-referrer restriction on that key can break. When
+          // the preferred port was taken, `app/launch.ts` accepted whatever the OS handed
+          // out — and Google's referrer restrictions cannot express a port range, so no
+          // allowlist can ever name this one. Say so here rather than let it surface as a
+          // Picker that opens and refuses. Everything else Google-shaped (Drive, the
+          // digest, the mirror) is server-side and unaffected. (0016)
+          portNote: listeningPort !== config.port
+            ? `STEWARD is on port ${listeningPort} because ${config.port} was taken. If the Picker is refused, `
+              + `it is the API key's referrer restriction: add http://localhost:${listeningPort}/* to it, or free port ${config.port} and restart.`
+            : null,
         }, { headers: { 'Cache-Control': 'no-store' } });
       },
     },
@@ -2320,6 +2331,10 @@ const server = listen((port) => Bun.serve({
                 const r = await fetch('/update/check').then((x) => x.json()).catch(() => ({ state: 'error', reason: 'No network.' }));
                 if (r.state === 'available') { say('Version ' + r.version + ' is available.', true); apply.hidden = false; }
                 else if (r.state === 'current') say('Up to date.', true);
+                // 'unsupported' means there is nothing here for this machine and that is
+                // nobody's fault — no releases yet, no build for this platform, a checkout.
+                // It is a sentence, not a failure, and it must not arrive in the error colour.
+                else if (r.state === 'unsupported') say(r.reason, true);
                 else say(r.reason ?? 'Could not check.');
               });
               apply.addEventListener('click', async () => {

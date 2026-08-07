@@ -1,7 +1,7 @@
 ---
 id: 0016-release
 title: STEWARD — the first release anyone can actually download and run
-status: todo
+status: doing
 owner: admin
 created: 2026-08-04
 milestone: M3 (ship it)
@@ -9,28 +9,31 @@ tags: [release, packaging, readme, gatekeeper, smartscreen, ci, auto-update, win
 tasks:
   - id: readme-install
     title: A front page that tells a non-developer what this is and how to run it
-    status: todo
+    status: done
   - id: update-404
     title: The answer the updater has never given — "no releases yet" is not an error
-    status: todo
+    status: done
   - id: version-bump
     title: 0.3.0 — the number the tag, package.json and every binary have to agree on
-    status: todo
+    status: done
+  - id: picker-port
+    title: The fallback port no allowlist can name, said out loud instead of discovered
+    status: done
   - id: ci-rehearsal
     title: Make workflow_dispatch a real rehearsal — full gate, three artifacts, nothing published
-    status: todo
+    status: doing
   - id: windows-check
     title: The script for the person with a Windows machine, and what each answer means
-    status: todo
+    status: blocked
   - id: tag-first
     title: Push the first tag ever pushed, and verify the release from a clean download
-    status: todo
+    status: blocked
   - id: update-live
     title: The second release — the only way the updater can ever be tested for real
-    status: todo
+    status: blocked
   - id: verify
     title: The gate — what a release has to survive before it counts as shipped
-    status: todo
+    status: doing
 ---
 
 # STEWARD — the release (0016)
@@ -45,6 +48,70 @@ filtering and the bug-report door. `plans/BACKLOG.md` records it; this plan inhe
 
 What follows assumes that gate is met and describes what happens next. It is deliberately
 short on building, because **the binaries are not a thing to build — they are already built.**
+
+## Built and verified 2026-08-07 — everything that does not need a push
+
+The gate at the top is met: `0011` closed on 2026-08-07 and `0012`, `0013`, `0014`, `0015`
+were already `done`. Four tasks are built and checked; the rest are waiting on a human
+click, and the split is exactly the one this plan predicted.
+
+**`version-bump`.** `package.json` is `0.3.0`. One line, as designed — the packaged binary
+built from that tree answers `/healthz` with `{"name":"steward","version":"0.3.0","packaged":true}`
+without any other file being touched.
+
+**`update-404`.** `checkForUpdate` now maps **404 only** to
+`{ state: 'unsupported', reason: 'No releases have been published yet.' }`; every other
+non-`ok` status keeps saying what it was. Two tests (372 total, `tsc` clean). This was
+verified against **real GitHub, not a stub** — a packaged `0.3.0` binary asked
+`api.github.com/repos/tjakoen/steward/releases/latest`, got the live 404, and returned the
+sentence.
+
+One correction to this plan's own wording, found by looking rather than reasoning: there is
+**no failure colour**. GRAIN is monochrome on purpose — `--color-success` and
+`--color-danger` both resolve to `--ink` (`styles/variables.css`: *"success/danger collapse
+to ink in monochrome — signalled by weight/treatment, not hue"*). The signal is
+`font-weight: 600` on `.form-status[data-ok="false"]` (`frontend/client/steward.css:231-233`),
+measured at 600 against 400. So the card was not printing the 404 in red; it was printing it
+in **bold**, which is the same claim in GRAIN's vocabulary. The fix is unchanged and now
+also covers the other `unsupported` cases: the card renders `state: 'unsupported'` with
+`ok = true`, so a checkout, a platform with no build, and a repo with no releases are all
+sentences rather than faults.
+
+**`readme-install`.** `README.md` went from 49 developer-facing lines to a front page that
+opens with **Install**: the three asset names as published, the quarantine and SmartScreen
+overrides with the reason attached, `shasum -a 256 -c SHA256SUMS --ignore-missing` and
+`Get-FileHash` (the `--ignore-missing` flag confirmed working on macOS's `shasum`, which is
+not GNU coreutils), Chrome/Edge and Ollama as consequences rather than a checklist, the
+three data directories, `steward.env`, `steward.log`, and the `VACUUM INTO` warning that
+0011 paid for. The developer section survives, one heading lower. The `Status` line no
+longer claims plan `0001`.
+
+**`ci-rehearsal`** — written, not yet run. `release.yml` now skips the tag/package.json
+check when `github.event_name != 'push'`, guards **Publish** with
+`if: github.event_name == 'push'`, and uploads the darwin and linux binaries plus
+`SHA256SUMS` as a `steward-rehearsal` artifact on a dispatch. The safety moved from *the
+tag check happens to fail* to *the publish step says when it runs*. It cannot be exercised
+until the workflow file is on GitHub's default branch, which needs a push.
+
+**`picker-port` — the open question at the bottom of this plan, now decided.** Of the two
+honest options, *fail loudly when the preferred port is taken* is the wrong one: the
+fallback exists because something else holds 3000, and refusing to start then would trade a
+possibly-broken Picker for a certainly-unusable app. So `/files/picker-config` returns a
+`portNote` whenever the bound port is not the configured one, and `steward-picker.js` shows
+it and **opens the Picker anyway** — an unrestricted key works on any port, and refusing to
+try would be guessing at a Cloud Console setting the app cannot read. The note names the
+actual port and both ways out. It fires only on the OS fallback, because that is the case
+no allowlist can express; a port the operator set in `steward.env` is one they can allowlist.
+
+Also checked on the packaged `0.3.0` binary, from a scratch `STEWARD_DATA` so no real data
+was touched: `/components.css` at exactly **138,028 bytes** (0009's invariant, still true at
+0.3.0), and a demo ticket rendering a **61,134-byte** PDF through packaged Chrome. `dist/`
+was `rm -rf`'d first — the stale-`SHA256SUMS` trap below is real, and those 2026-08-01
+binaries are gone. `git diff build/assets.gen.ts` is empty after the build, so the checked-in
+manifest describes it.
+
+What is left is `ci-rehearsal`'s actual run, `windows-check`, `tag-first` and `update-live` —
+and every one of them starts with a push that is the human's call.
 
 ## What already exists, measured on 2026-08-04 and not to be re-derived
 
@@ -399,7 +466,8 @@ minute, and no code depends on it. It is recorded here so it cannot be forgotten
   unaffected, because only the Picker runs in a browser against that key. The honest options are
   to say so in the UI when the app is not on its default port, or to make the packaged app fail
   loudly rather than silently take a different one. Decide in this plan; do not let it be
-  discovered by a user whose port 3000 was busy.
+  discovered by a user whose port 3000 was busy. **DECIDED 2026-08-07: say so, and open the
+  Picker anyway** — see `picker-port` above.
 
 **A GRAIN upstream candidate: the snackbar.** 0012 built one because GRAIN ships no toast —
 `components/molecules/` has `callout` and `status-list`, neither of which is a transient

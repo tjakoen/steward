@@ -91,9 +91,23 @@ any of it: **the plan's interlock design was wrong and only running it found tha
 window both guards exist for. The push interlock now diffs the sheet, and the apply guard is
 a fingerprint of the plan the operator read. No clocks anywhere.
 
-**`0016` release is now the only plan left.** Its one un-run check needs a human at a
-keyboard: that Sheets' own warning dialog fires when typing into a grey column. The protected
-ranges are confirmed correct; the dialog cannot be triggered headlessly.
+**`0016` release is now the only plan left, and it is `doing` as of 2026-08-07.** Four of its
+nine tasks are built and checked — `version-bump` (`package.json` is `0.3.0`), `update-404`
+(a real 404 from real GitHub now reads *No releases have been published yet.*),
+`readme-install` (the front page opens with Install, not with `git clone`), and the new
+`picker-port` (the OS-fallback port is announced instead of discovered). 372 tests, `tsc`
+clean. `ci-rehearsal` is written but cannot run until the workflow file is on GitHub's
+default branch.
+
+**Everything still open in `0016` starts with a push, and the push is the human's click.**
+`tag-first`, `update-live` and the dispatch rehearsal all need it; `windows-check` needs a
+person with a Windows machine, who can then use the rehearsal's run artifact rather than
+waiting for a release. Before the tag: add `http://localhost:3000/*` to `GOOGLE_API_KEY`'s
+referrer list — the packaged app defaults to 3000 and the key is pinned to `:3211`.
+
+`0011`'s one un-run check also still needs a human at a keyboard: that Sheets' own warning
+dialog fires when typing into a grey column. The protected ranges are confirmed correct; the
+dialog cannot be triggered headlessly.
 
 Answered 2026-08-07: **the 09:30 scheduled digest HAS fired on its own** — 0013's scheduler is
 proven, not just its manual send. Still unanswered, and still only the operator can: nobody has

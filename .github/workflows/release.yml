@@ -2,6 +2,13 @@
 #
 #   git tag v0.3.0 && git push origin v0.3.0
 #
+# Run it by hand (Actions → release → Run workflow) and it is a REHEARSAL: everything
+# below happens except the publish, and the three binaries plus SHA256SUMS come out as run
+# artifacts instead of a release. That is how the Windows exe is obtained by someone with a
+# Windows machine BEFORE a tag exists — find out whether it works before publishing it,
+# not after. The publish step is guarded on `github.event_name == 'push'`, which says what
+# it means; it used to be guarded only by the tag check failing, which is an accident.
+#
 # Two jobs, and only for one reason: `--windows-hide-console` and `--windows-icon` are
 # refused by Bun unless the HOST is Windows ("only available when compiling on Windows").
 # Everything else cross-compiles from the Linux runner, which is why there is no matrix.
@@ -54,7 +61,12 @@ jobs:
       # The tag and package.json must agree. A binary that reports a version no release
       # carries makes every update check permanently wrong, in a way nobody notices until
       # someone actually needs an update — so this fails the build rather than the user.
+      #
+      # A manual run has no tag: GITHUB_REF_NAME is the branch, so this would compare
+      # `main` to `0.3.0` and fail before the gate ever ran. Skipping it is what makes the
+      # rehearsal rehearse anything.
       - name: The tag matches package.json
+        if: github.event_name == 'push'
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG="$(bun --print 'require("./package.json").version')"
@@ -92,7 +104,22 @@ jobs:
       - name: The checked-in manifest matches this commit
         run: git diff --exit-code -- build/assets.gen.ts
 
+      # A rehearsal has to produce something a person can download and run, or it has only
+      # proved that the compiler exits 0. The windows exe is already an artifact from the
+      # job above; these are the other two and the checksums that verify all three.
+      - name: Keep the binaries a rehearsal built
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: steward-rehearsal
+          path: |
+            dist/steward-darwin-arm64
+            dist/steward-linux-x64
+            dist/SHA256SUMS
+          if-no-files-found: error
+
       - name: Publish
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

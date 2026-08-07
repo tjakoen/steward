@@ -84,6 +84,22 @@ test('an older or equal release reports current', async () => {
   }
 });
 
+test('a repository with no releases yet is not an error', async () => {
+  // The window between a repo going public and its first tag: GitHub answers 404, and the
+  // operator clicking "Check for updates" on a fresh install must not be told that
+  // something failed. Nothing failed — there is simply nothing to offer them yet.
+  const res = await checkForUpdate(async () => new Response('{"message":"Not Found"}', { status: 404 }), '0.3.0');
+  expect(res.state).toBe('unsupported');
+  if (res.state === 'unsupported') expect(res.reason).toBe('No releases have been published yet.');
+});
+
+test('other GitHub failures are still errors', async () => {
+  // Only 404 means "no releases". A 500 or a rate limit is a real fault and keeps saying so.
+  const res = await checkForUpdate(async () => new Response('nope', { status: 503 }), '0.3.0');
+  expect(res.state).toBe('error');
+  if (res.state === 'error') expect(res.reason).toContain('503');
+});
+
 test('no network is a reported state, never a thrown one', async () => {
   const res = await checkForUpdate(async () => { throw new Error('getaddrinfo ENOTFOUND'); }, '0.2.0');
   expect(res.state).toBe('error');

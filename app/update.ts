@@ -108,6 +108,10 @@ export async function checkForUpdate(
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': `steward/${current}` },
       signal: AbortSignal.timeout(10_000),
     });
+    // A repository with no releases answers 404 here, and that is the ordinary state of a
+    // brand-new project — not a fault, and the first thing a first user clicks. Reporting
+    // it as an error tells the operator something is broken when nothing is.
+    if (res.status === 404) return { state: 'unsupported', reason: 'No releases have been published yet.' };
     if (!res.ok) return { state: 'error', reason: `GitHub answered ${res.status}` };
 
     const rel = (await res.json()) as GhRelease;

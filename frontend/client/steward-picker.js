@@ -48,6 +48,10 @@ export async function openPicker(button) {
     return;
   }
 
+  // Warn, then open anyway: an unrestricted key works fine on any port, and refusing to
+  // try would be guessing at a Cloud Console setting the app cannot read.
+  if (cfg.portNote) note(button, cfg.portNote, false);
+
   await loadPickerSdk();
   const { google } = window;
 

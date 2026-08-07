@@ -91,19 +91,26 @@ any of it: **the plan's interlock design was wrong and only running it found tha
 window both guards exist for. The push interlock now diffs the sheet, and the apply guard is
 a fingerprint of the plan the operator read. No clocks anywhere.
 
-**`0016` release is now the only plan left, and it is `doing` as of 2026-08-07.** Four of its
-nine tasks are built and checked — `version-bump` (`package.json` is `0.3.0`), `update-404`
-(a real 404 from real GitHub now reads *No releases have been published yet.*),
-`readme-install` (the front page opens with Install, not with `git clone`), and the new
-`picker-port` (the OS-fallback port is announced instead of discovered). 372 tests, `tsc`
-clean. `ci-rehearsal` is written but cannot run until the workflow file is on GitHub's
-default branch.
+**STEWARD IS RELEASED. `v0.3.0` is public, 2026-08-07** — four assets, from a green CI run
+(`31160830488`) on the first tag this repo has ever had. A fresh download of the published
+mac binary verifies against `SHA256SUMS`, boots, serves `/components.css` at 138,028 bytes,
+renders a ticket PDF, and answers **Check for updates** with *Up to date.* — the first time
+`checkForUpdate` has ever parsed a real release payload instead of a stub.
 
-**Everything still open in `0016` starts with a push, and the push is the human's click.**
-`tag-first`, `update-live` and the dispatch rehearsal all need it; `windows-check` needs a
-person with a Windows machine, who can then use the rehearsal's run artifact rather than
-waiting for a release. Before the tag: add `http://localhost:3000/*` to `GOOGLE_API_KEY`'s
-referrer list — the packaged app defaults to 3000 and the key is pinned to `:3211`.
+Seven of `0016`'s nine tasks are `done`: `version-bump`, `update-404`, `readme-install`,
+`picker-port`, `ci-rehearsal` (a `workflow_dispatch` run published nothing and handed back
+all three binaries as artifacts), `tag-first`, and most of `verify`. 372 tests, `tsc` clean.
+
+**Two things left, both needing a human.** `windows-check` — nobody has ever run the exe,
+and it can now be had from the release or from run `31159428657`'s artifact. And
+`update-live` — the updater's swap-and-re-exec path can only be tested by a **second**
+release, so it needs a `v0.3.1` tag that has not been authorised.
+
+**AND ONE THING IS OVERDUE:** `GOOGLE_API_KEY` is still restricted to
+`http://localhost:3211/*`, confirmed by the operator on 2026-08-07. The packaged app defaults
+to port **3000**, so the Picker is broken for anyone who downloads `v0.3.0` until
+`http://localhost:3000/*` is added to that key in Cloud Console. It is a half-minute setting
+change and needs no rebuild — but until it happens, a released feature does not work.
 
 `0011`'s one un-run check also still needs a human at a keyboard: that Sheets' own warning
 dialog fires when typing into a grey column. The protected ranges are confirmed correct; the

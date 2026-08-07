@@ -27,7 +27,7 @@ tasks:
     status: blocked
   - id: tag-first
     title: Push the first tag ever pushed, and verify the release from a clean download
-    status: blocked
+    status: done
   - id: update-live
     title: The second release — the only way the updater can ever be tested for real
     status: blocked
@@ -155,8 +155,40 @@ agree.
   strong. `steward.log` remains the answer either way, and it is written before the server
   binds.
 
-What is left is `windows-check` on a real machine — which can now use run `31159428657`'s
-artifact rather than waiting for a release — plus `tag-first` and `update-live`.
+## `v0.3.0` exists — 2026-08-07, run `31160830488`
+
+The human authorised the first tag on a green rehearsal, and it went up. The release job is
+the exact mirror image of the rehearsal, which is what the `if:` conditions were for:
+
+```
+✓ The tag matches package.json     ← ran, and passed: v0.3.0 against package.json 0.3.0
+✓ bun run check   ✓ bun test       372 pass
+- Keep the binaries a rehearsal built   ← skipped, this one is a push
+✓ Publish
+```
+
+**`STEWARD v0.3.0`, four assets**: `steward-windows-x64.exe` (99,328,000 B),
+`steward-darwin-arm64` (64,552,418 B), `steward-linux-x64` (95,688,832 B), `SHA256SUMS`
+(261 B). No release existed before it; none has ever been deleted.
+
+Then the gate, against a **fresh download of the published asset** rather than anything on
+this machine:
+
+- `shasum -a 256 -c SHA256SUMS --ignore-missing` → `steward-darwin-arm64: OK`.
+- `chmod +x` and run: `/healthz` reports `0.3.0`, `/components.css` is 138,028 bytes, a demo
+  ticket renders a 61,184-byte PDF through packaged Chrome.
+- **Check for updates** → `{"state":"current","version":"0.3.0"}`, rendered in the Settings
+  card as **"Up to date."** at font-weight 400 with the Download button hidden. That is
+  `checkForUpdate` parsing a **real GitHub release payload for the first time in its life** —
+  every one of its fourteen tests had been against a stub.
+
+The quarantine instruction could not be exercised: a `gh release download` does not set the
+attribute a browser download does, so the README's `xattr` line still needs one download
+through a browser to be confirmed as written.
+
+What is left is `windows-check` on a real machine — which can use either run
+`31159428657`'s artifact or the published exe — and `update-live`, which needs a **second**
+release and therefore a second tag that nobody has authorised yet.
 
 ## What already exists, measured on 2026-08-04 and not to be re-derived
 

@@ -632,17 +632,47 @@ updated binary carries `com.apple.provenance` and no `com.apple.quarantine`. So 
 a *first download* problem only; every subsequent update is clean, and the missing Apple
 Developer ID costs one `xattr` command per machine, ever, rather than one per release.
 
-### Still unproven, and it needs a human at a browser
+### The Picker is still broken, and it is a Cloud Console setting — not this build
 
-**Nobody has ever seen the Picker open from a released binary.** `picker-config` says the app
-is ready but for a connected Google account, and connecting one means clicking through
-Google's consent screen — it cannot be done headlessly. The last mile is: open
-`http://localhost:3211/settings` on the running `0.3.1`, connect the account, then open the
-Picker from the files surface and confirm the dialog renders instead of erroring on the
-referrer. Until that is done, `v0.3.1`'s Google support is *credentialed*, not *demonstrated*.
+The operator connected Google on the running `0.3.1` and opened the Picker. It answered:
 
-**Left in the operator's real data directory.** The verification ran against the packaged
-app's own `~/Library/Application Support/STEWARD`, which was empty before today. It now holds
-one client (`Release Check Co`, `cli_7d866cd7e8db4ccc`), one customer (Ada Lovelace) and one
-ticket (`TXLOVE0001`) created solely to render that PDF. Archive or delete them before the
-directory becomes real.
+> **There was an error! The API developer key is invalid.**
+
+**The build is not at fault, and the referrer list is not at fault.** Both were checked
+rather than assumed:
+
+- The key the binary carries is **byte-identical to local `.env`** — 39 characters, same
+  SHA-256, `AIza` prefix, and `appId` `308363978170` matching `GOOGLE_PROJECT_NUMBER`.
+  `/files/picker-config` answers `ready: true` with `portNote: null` (the app is on its
+  configured port, so the fallback-port case is not in play either).
+- Probing the key against a key-accepting Google API, varying only the `Referer` header:
+
+```
+Referer <empty>            "Requests from referer <empty> are blocked."
+Referer localhost:3211/    "Requests to this API translate method … are blocked."
+Referer localhost:3000/    "Cloud Translation API has not been used in project 308363978170"
+```
+
+Only the **empty** referrer is refused. Both localhost referrers get past the referrer check
+and are stopped later — which proves two things at once: the allowlist accepts `:3211` and
+`:3000`, **and the key carries an API-restriction list**, because `:3211` is refused at the
+selected-APIs stage rather than the referrer stage.
+
+So the remaining suspect is that list, and it is visible only in the Console:
+
+1. **APIs & Services → Enabled APIs** on project `308363978170`: is **Google Picker API**
+   enabled? Enable it if not.
+2. **Credentials → the `GOOGLE_API_KEY` key → API restrictions**: if *Restrict key* is
+   selected, **Google Picker API** must be one of the selected APIs. A list that omits it
+   produces exactly the message above.
+
+This has been latent since **2026-08-06**, not introduced by the release. `0006` recorded the
+Picker iframe mounting from `docs.google.com/picker` on 2026-08-01 — when the key was
+**unrestricted**. The restrictions were added on 2026-08-06 and nobody opened the Picker
+between then and now. `v0.3.1`'s Google support is *credentialed*, not yet *demonstrated*.
+
+**The data directory was left as it was found.** Verification ran against the packaged app's
+own `~/Library/Application Support/STEWARD`, empty before this session. The client, customer
+and ticket created to render that PDF have been deleted; `clients`, `customers`, `tickets`,
+`audit`, `ticket_seq` and `documents` are all back to 0 rows. The four `settings` rows are
+the operator's Google tokens and were deliberately kept, so the app is still connected.

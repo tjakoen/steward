@@ -113,11 +113,17 @@ network with the running binary untouched, and an in-app update is confirmed **n
 `com.apple.quarantine` — Gatekeeper is a first-download problem only. Details in
 `plans/0016-release.md` § "`v0.3.1` — the second release".
 
-**Two things left, both needing a human.** `windows-check` — nobody has ever run the exe,
-and it can now be had from either release or from run `31159428657`'s artifact. And **nobody
-has ever seen the Picker open from a released binary**: `picker-config` now reports only
-`["a connected Google account"]` as missing, and connecting one means clicking through
-Google's consent screen, which cannot be done headlessly.
+**Two things left.** `windows-check` — nobody has ever run the exe, and it can now be had
+from either release or from run `31159428657`'s artifact.
+
+And **the Picker fails with *"The API developer key is invalid"***, tried on the running
+`0.3.1` with a connected account. **Not a build fault and not the referrer list**: the baked
+key is byte-identical to `.env`, and a referrer probe shows only the *empty* referrer is
+blocked while both `:3211` and `:3000` pass and are stopped at the **selected-APIs** stage
+instead. So the key carries an API-restriction list, and the fix is one of two Console
+checkboxes on project `308363978170` — enable **Google Picker API**, and include it in the
+key's *Restrict key* list. Latent since 2026-08-06, when the restrictions were added; `0006`
+saw the Picker mount on 2026-08-01 while the key was unrestricted.
 
 **THE OVERDUE THING IS DONE, AND IT WAS NOT THE BLOCKER.** The operator added
 `http://localhost:3000/*` to `GOOGLE_API_KEY`'s HTTP-referrer list on 2026-08-07, alongside

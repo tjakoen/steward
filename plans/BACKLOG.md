@@ -101,10 +101,23 @@ Seven of `0016`'s nine tasks are `done`: `version-bump`, `update-404`, `readme-i
 `picker-port`, `ci-rehearsal` (a `workflow_dispatch` run published nothing and handed back
 all three binaries as artifacts), `tag-first`, and most of `verify`. 372 tests, `tsc` clean.
 
+**`v0.3.1` IS RELEASED, 2026-08-07 — and it closes `build-secrets` and `update-live` both.**
+The four Actions secrets were set from local `.env` (`total_count` went 0 → 4), tag `v0.3.1`
+on `8257e13` ran green (`31192309315`) and published four assets. The parked `v0.3.0` mac
+binary, run with no `.env` in reach, found the release, verified the checksum, swapped itself
+and re-exec'd to `0.3.1` at the same path — the first time any of `checkForUpdate`,
+`applyUpdate` or the re-exec has ever touched a real release. `/files/picker-config` on the
+updated binary dropped `GOOGLE_API_KEY` and `GOOGLE_PROJECT_NUMBER` from `missing`, so the
+credentials really are baked in now. The mismatch path was watched throwing over the real
+network with the running binary untouched, and an in-app update is confirmed **not** to set
+`com.apple.quarantine` — Gatekeeper is a first-download problem only. Details in
+`plans/0016-release.md` § "`v0.3.1` — the second release".
+
 **Two things left, both needing a human.** `windows-check` — nobody has ever run the exe,
-and it can now be had from the release or from run `31159428657`'s artifact. And
-`update-live` — the updater's swap-and-re-exec path can only be tested by a **second**
-release, so it needs a `v0.3.1` tag that has not been authorised.
+and it can now be had from either release or from run `31159428657`'s artifact. And **nobody
+has ever seen the Picker open from a released binary**: `picker-config` now reports only
+`["a connected Google account"]` as missing, and connecting one means clicking through
+Google's consent screen, which cannot be done headlessly.
 
 **THE OVERDUE THING IS DONE, AND IT WAS NOT THE BLOCKER.** The operator added
 `http://localhost:3000/*` to `GOOGLE_API_KEY`'s HTTP-referrer list on 2026-08-07, alongside

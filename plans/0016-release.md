@@ -30,10 +30,10 @@ tasks:
     status: done
   - id: build-secrets
     title: The four Actions secrets nobody set — why v0.3.0 shipped with Google switched off
-    status: blocked
+    status: done
   - id: update-live
     title: The second release — the only way the updater can ever be tested for real
-    status: blocked
+    status: done
   - id: verify
     title: The gate — what a release has to survive before it counts as shipped
     status: doing
@@ -568,3 +568,81 @@ a sticky failure, and nothing in it is STEWARD-specific. The operator asked for 
 upstream **after they have used it for a while**, which is the right order: 0007 established
 that upstreaming to GRAIN means a published version and a release that cannot be withdrawn, so
 the component earns its way there by being lived with first.
+
+## `v0.3.1` — the second release, and the first one with credentials in it (2026-08-07)
+
+Both `build-secrets` and `update-live` are **done**, in the same release, exactly as the
+section above predicted they would have to be.
+
+**`build-secrets`.** The four secrets now exist on `tjakoen/steward`
+(`gh api repos/tjakoen/steward/actions/secrets` reports `total_count: 4`); before this they
+had never existed. Nothing in the repo changed to make it work — `release.yml:38-41,96-99`
+already passed all four under exactly those names. The operator set them from local `.env`;
+the values are 72, 35, 39 and 12 characters, which is the shape a real client id, secret, API
+key and project number have, so no empty string got through a second time. **Check
+`total_count` before any future release**, because an empty secret set is not a build error
+and CI stays green through it — that is precisely how `v0.3.0` shipped dead.
+
+**`update-live`.** Tag `v0.3.1` on `8257e13`, run `31192309315`, green, four assets published.
+The only source change was `package.json`'s version line, which is enough: `scripts/build.ts:15`
+reads it and `config.ts:36` surfaces it.
+
+Every step was run against the parked `v0.3.0` mac binary at `~/Local/steward-parked/`, with
+**no `.env` anywhere in reach** and no `GOOGLE_*` variable in the environment — a downloader's
+actual state, which is the only state that proves anything here. `PORT=3211` on purpose: port
+3000 is held by Docker on this machine, and 3211 is one of the two ports on the API key's
+referrer list.
+
+| Step | Result |
+|---|---|
+| `/healthz` before | `{"name":"steward","version":"0.3.0","packaged":true}` |
+| `/update/check` | `{"state":"available","version":"0.3.1", …}` — a real payload, not a stub |
+| `/update/apply` | `{"ok":true,"version":"0.3.1"}`, swap and re-exec |
+| `/healthz` after | `0.3.1`, same path, same port |
+| `sha256` of the running file | `461fc43e…`, verifies `OK` against the published `SHA256SUMS` |
+| `.steward-0.3.1.old` | **already gone** — `cleanupOldBinaries` ran on the new boot |
+| `/components.css` | 138,028 bytes, the recorded invariant, from the new binary |
+| A ticket PDF | `200 application/pdf`, 58,026 bytes, **1 page** — 0013's footer fix holds packaged |
+
+**The credentials are in the binary.** This is what the whole release was for:
+
+```
+0.3.0  {"ready":false,"missing":["a connected Google account","GOOGLE_API_KEY","GOOGLE_PROJECT_NUMBER"]}
+0.3.1  {"ready":false,"missing":["a connected Google account"]}
+```
+
+`/settings` on `0.3.1` no longer renders *"No OAuth client id configured"*. What remains in
+`missing` is a user action, not a build defect — see the one thing still unproven, below.
+
+**The checksum mismatch was watched failing, over the real network.** `applyUpdate` was handed
+the genuine `v0.3.1` mac binary and `v0.3.0`'s genuine `SHA256SUMS` — two real GitHub URLs,
+nothing stubbed, and a digest that cannot match:
+
+```
+THREW: Checksum mismatch — expected c2626eca…, got 461fc43e…. Nothing was changed.
+```
+
+`expected` is `v0.3.0`'s own hash and `got` is `v0.3.1`'s, which is the proof the comparison
+read both files rather than trusting either. Afterwards the directory held exactly the two
+files it started with — no `.new`, no `.old` — and the running server still answered `0.3.1`.
+The throw happens at `app/update.ts:179-181`, before the first `Bun.write`.
+
+**An in-app update does NOT set the quarantine attribute — confirmed, not assumed.** The
+updated binary carries `com.apple.provenance` and no `com.apple.quarantine`. So Gatekeeper is
+a *first download* problem only; every subsequent update is clean, and the missing Apple
+Developer ID costs one `xattr` command per machine, ever, rather than one per release.
+
+### Still unproven, and it needs a human at a browser
+
+**Nobody has ever seen the Picker open from a released binary.** `picker-config` says the app
+is ready but for a connected Google account, and connecting one means clicking through
+Google's consent screen — it cannot be done headlessly. The last mile is: open
+`http://localhost:3211/settings` on the running `0.3.1`, connect the account, then open the
+Picker from the files surface and confirm the dialog renders instead of erroring on the
+referrer. Until that is done, `v0.3.1`'s Google support is *credentialed*, not *demonstrated*.
+
+**Left in the operator's real data directory.** The verification ran against the packaged
+app's own `~/Library/Application Support/STEWARD`, which was empty before today. It now holds
+one client (`Release Check Co`, `cli_7d866cd7e8db4ccc`), one customer (Ada Lovelace) and one
+ticket (`TXLOVE0001`) created solely to render that PDF. Archive or delete them before the
+directory becomes real.

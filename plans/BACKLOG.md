@@ -106,11 +106,34 @@ and it can now be had from the release or from run `31159428657`'s artifact. And
 `update-live` — the updater's swap-and-re-exec path can only be tested by a **second**
 release, so it needs a `v0.3.1` tag that has not been authorised.
 
-**AND ONE THING IS OVERDUE:** `GOOGLE_API_KEY` is still restricted to
-`http://localhost:3211/*`, confirmed by the operator on 2026-08-07. The packaged app defaults
-to port **3000**, so the Picker is broken for anyone who downloads `v0.3.0` until
-`http://localhost:3000/*` is added to that key in Cloud Console. It is a half-minute setting
-change and needs no rebuild — but until it happens, a released feature does not work.
+**THE OVERDUE THING IS DONE, AND IT WAS NOT THE BLOCKER.** The operator added
+`http://localhost:3000/*` to `GOOGLE_API_KEY`'s HTTP-referrer list on 2026-08-07, alongside
+the existing `http://localhost:3211/*`. Then the published mac binary was run for the first
+time with no `.env` in reach — the state a downloader is actually in — and
+`GET /files/picker-config` answered:
+
+```
+{"ready":false,"missing":["GOOGLE_API_KEY","GOOGLE_PROJECT_NUMBER"]}
+```
+
+**`v0.3.0` carries no Google credentials at all.** `gh secret list -R tjakoen/steward`
+returns nothing: the repo has never had a single Actions secret. `release.yml` passes all
+four correctly and `scripts/build.ts` bakes them correctly — they were simply empty at build
+time, and the workflow's own comment says that case "yield[s] a working binary with Drive
+switched off," which is exactly what shipped. This is wider than the Picker: with
+`BUILD_GOOGLE_CLIENT_ID` empty, Settings renders *"No OAuth client id configured"*, so a
+downloaded STEWARD cannot connect a Google account — **Drive upload and download, the Picker,
+and Sheets sync are all dead in the release.** The 2026-08-07 verify missed it because every
+step it ran (boot, `components.css`, PDF, update check) is Google-free.
+
+The referrer entry is still correct and still needed; it was just never sufficient. Neither
+it nor the credentials have been seen working from a released binary.
+
+**The fix needs no code.** Set the four repo secrets from local `.env`
+(`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_API_KEY`, `GOOGLE_PROJECT_NUMBER`), and
+the next tag carries them. That folds into `update-live`'s `v0.3.1`: one release closes both.
+Note the consequence the plan already accepted — `tjakoen/steward` is public, so those values
+become extractable from published binaries; the API key's guard is the referrer list.
 
 `0011`'s one un-run check also still needs a human at a keyboard: that Sheets' own warning
 dialog fires when typing into a grey column. The protected ranges are confirmed correct; the

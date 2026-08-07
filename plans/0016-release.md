@@ -28,6 +28,9 @@ tasks:
   - id: tag-first
     title: Push the first tag ever pushed, and verify the release from a clean download
     status: done
+  - id: build-secrets
+    title: The four Actions secrets nobody set — why v0.3.0 shipped with Google switched off
+    status: blocked
   - id: update-live
     title: The second release — the only way the updater can ever be tested for real
     status: blocked
@@ -538,6 +541,18 @@ Leaving it as `:3211` for now costs nothing — it is a Cloud Console setting, c
 minute, and no code depends on it. It is recorded here so it cannot be forgotten:
 
 - **Before the tag:** add `http://localhost:3000/*` to the key's HTTP-referrer list.
+  **DONE 2026-08-07**, after the tag rather than before it — both `:3000` and `:3211` are now
+  listed.
+
+**And the referrer was never the blocker (found 2026-08-07).** Running the published mac
+binary with no `.env` in reach — a downloader's actual state — gets
+`{"ready":false,"missing":["GOOGLE_API_KEY","GOOGLE_PROJECT_NUMBER"]}` from
+`/files/picker-config`, and *"No OAuth client id configured"* on `/settings`. `gh secret list
+-R tjakoen/steward` is **empty**: the repo has no Actions secrets, so `release.yml` passed
+four empty strings to `scripts/build.ts` and `v0.3.0` shipped with Drive, the Picker and
+Sheets sync all switched off. The workflow comment predicted this exact outcome for unset
+secrets; nobody checked that they were set. No code is wrong. Set the four secrets from
+`.env` and let `update-live`'s `v0.3.1` carry them — one release closes both tasks.
 - **The fallback port has no allowlist answer.** Google's referrer restrictions cannot express a
   port range. Everything else — Drive upload and download, the digest, PDFs, the updater — is
   unaffected, because only the Picker runs in a browser against that key. The honest options are

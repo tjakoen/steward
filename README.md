@@ -111,8 +111,8 @@ CHROME_PATH=/path/to/chrome
 ### When nothing appears
 
 `steward.log`, in the data directory above. This matters most on Windows,
-where the release exe is built with the console hidden: a launch that fails
-before the browser opens is *invisible* by construction, and that file is the
+where the release exe hides its console window: a launch that fails before the
+browser opens usually leaves nothing on screen at all, and that file is the
 only record of what happened. It is written before the server binds, so even a
 crash during startup lands in it.
 

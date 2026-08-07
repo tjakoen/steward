@@ -21,7 +21,7 @@ tasks:
     status: done
   - id: ci-rehearsal
     title: Make workflow_dispatch a real rehearsal — full gate, three artifacts, nothing published
-    status: doing
+    status: done
   - id: windows-check
     title: The script for the person with a Windows machine, and what each answer means
     status: blocked
@@ -110,8 +110,53 @@ was `rm -rf`'d first — the stale-`SHA256SUMS` trap below is real, and those 20
 binaries are gone. `git diff build/assets.gen.ts` is empty after the build, so the checked-in
 manifest describes it.
 
-What is left is `ci-rehearsal`'s actual run, `windows-check`, `tag-first` and `update-live` —
-and every one of them starts with a push that is the human's call.
+## The rehearsal, run for real on 2026-08-07 — run `31159428657`
+
+The human authorised the push, so `953d6e6` and `1b0d278` went to `origin/main` and the
+workflow ran by hand for the first time in this repo's life. **Both jobs green, and the two
+steps that were supposed to be skipped were skipped:**
+
+```
+✓ windows in 36s          ✓ release in 31s
+  ✓ bun install             - The tag matches package.json     ← skipped, no tag on a dispatch
+  ✓ bun run build:win       ✓ bun run check
+  ✓ upload-artifact         ✓ bun test          372 pass, 0 fail
+                            ✓ download-artifact (the windows exe, into dist/)
+                            ✓ Build the other two
+                            ✓ The checked-in manifest matches this commit
+                            ✓ Keep the binaries a rehearsal built
+                            - Publish                          ← skipped, not a push event
+```
+
+`gh release list` is empty afterwards. The rehearsal published nothing, which is the whole
+claim.
+
+All three binaries came back as artifacts and `shasum -a 256 -c SHA256SUMS` says `OK` for
+each — including `steward-windows-x64.exe`, which was built on a different runner and
+downloaded into `dist/` before the checksums were written. That ordering is what makes one
+sums file cover three machines' worth of output, and it now has evidence rather than a
+comment. It also runs the README's own command verbatim, so that instruction is tested.
+
+The CI-built **darwin** binary boots, reports `0.3.0`, serves `/components.css` at 138,028
+bytes, and answers the live GitHub 404 with the sentence. CI's artifact and the local build
+agree.
+
+**Two things learned about the Windows exe without a Windows machine:**
+
+- **The icon took.** All six images in `assets/steward.ico` are byte-for-byte present inside
+  the CI exe, and the resource directory differs from a cross-compiled control build
+  (16,628 bytes against 272,336 — the flag replaced Bun's default resources rather than
+  adding to them). That is `windows-check`'s "confirm the icon in Explorer" item, answered
+  here. The `windows-latest` job exists for exactly this and it is doing its job.
+- **`--windows-hide-console` does not change the PE subsystem.** Both the CI exe and a
+  cross-compiled control report subsystem **3 (console)**, not 2 (GUI); Bun hides the window
+  at runtime instead. Practically this changes one sentence: a launch that dies *before* that
+  runtime hide can still flash a console, so "invisible by construction" is slightly too
+  strong. `steward.log` remains the answer either way, and it is written before the server
+  binds.
+
+What is left is `windows-check` on a real machine — which can now use run `31159428657`'s
+artifact rather than waiting for a release — plus `tag-first` and `update-live`.
 
 ## What already exists, measured on 2026-08-04 and not to be re-derived
 

@@ -192,6 +192,76 @@ test('sheet.push refuses by name when no mirror is wired up, rather than claimin
   expect(r.error).toContain('not configured');
 });
 
+// --- the pull previews, and only previews (0011) ----------------------------
+
+test('sheet.pull reports the diff in words and writes nothing', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.pull', actor: 'human', session: 's', payload: {},
+  }, {
+    previewPull: async () => ({
+      ok: true, changes: 1, records: 12, conflicts: 0, unknown: 0, blank: 0,
+      problems: [], refusal: null, needsAck: false,
+      lines: ['Ticket TXDOEX0001 (row 4): next action "chase" → "call back"'],
+    }),
+  });
+  expect(r.ok).toBe(true);
+  expect(r.ops).toEqual([]); // the sheet is not a surface this process can see
+  expect(r.reply).toContain('1 of 12 records');
+  expect(r.reply).toContain('TXDOEX0001');
+  // The load-bearing sentence: an AI that could apply removes the only defence against
+  // the shifted paste, so the verb has to say where applying happens instead.
+  expect(r.reply).toContain('Nothing has been written');
+  expect(r.reply).toContain('Settings');
+});
+
+test('sheet.pull says so plainly when the sheet and STEWARD agree', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.pull', actor: 'human', session: 's', payload: {},
+  }, { previewPull: async () => ({ ok: true, changes: 0, records: 12, lines: [] }) });
+  expect(r.reply).toContain('agree');
+  expect(r.reply).not.toContain('Settings'); // nothing to apply, so no instruction to
+});
+
+test('sheet.pull reports the rows it skipped rather than staying quiet about them', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.pull', actor: 'human', session: 's', payload: {},
+  }, {
+    previewPull: async () => ({
+      ok: true, changes: 2, records: 12, conflicts: 1, unknown: 3, blank: 1,
+      needsAck: true, lines: ['a', 'b'],
+    }),
+  });
+  expect(r.reply).toContain('does not know');
+  expect(r.reply).toContain('no id');
+  expect(r.reply).toContain("the sheet's value would win");
+  expect(r.reply).toContain('second confirmation');
+});
+
+test('a refused pull is an error carrying the refusal, not a cheerful summary', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, {
+    action: 'sheet.pull', actor: 'human', session: 's', payload: {},
+  }, {
+    previewPull: async () => ({
+      ok: true, changes: 0, records: 12,
+      refusal: 'Tickets has two rows for the same record id (t_1), at Tickets!A4.',
+      problems: [{ where: 'Tickets!A4', message: 'duplicate' }],
+    }),
+  });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('two rows for the same record id');
+});
+
+test('sheet.pull refuses by name when no mirror is wired up', async () => {
+  const { services } = ctx();
+  const r = await dispatchSteward(services, { action: 'sheet.pull', actor: 'human', session: 's', payload: {} });
+  expect(r.ok).toBe(false);
+  expect(r.error).toContain('not configured');
+});
+
 test('a rejected push is an error, not an unhandled rejection', async () => {
   const { services } = ctx();
   const r = await dispatchSteward(services, {

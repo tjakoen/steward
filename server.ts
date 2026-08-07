@@ -34,6 +34,7 @@ import { makeServices, type DocumentStores } from './app/services/index.ts';
 import { makeGoogleAuth, makeVerifier, challengeFor, authUrl, GOOGLE_SCOPE } from './app/google/oauth.ts';
 import { GoogleDriveStore } from './app/google/drive.ts';
 import { makeSheetsMirror } from './app/google/sheets.ts';
+import { applyPull, type PullPlan, type PullWriter } from './app/google/pull.ts';
 import { makeStewardReasoner } from './app/ai/reasoner.ts';
 import { CHAT_SURFACE, SCREEN_SURFACE } from './app/ai/surfaces.ts';
 import { seedDemo } from './app/seed/demo.ts';
@@ -156,6 +157,38 @@ const mirrorData = () => ({
   clients: services.repos.clients.list({ scope: 'all' }),
   customers: services.repos.customers.list({ scope: 'all' }),
   tickets: services.repos.tickets.list({ scope: 'all' }),
+});
+
+/**
+ * A pull's writes go through the SERVICES, like every other mutation (0011) — so each one
+ * appends its audit row in the same call, inside the one transaction `applyPull` opens.
+ *
+ * The actor is NOT the one the `/intent` door stamps. `/intent` says `human` and the digest
+ * deliberately passes that through; a pull must not, because what is being recorded is
+ * where the values came from, not whose finger was on the button.
+ */
+const pullWriter: PullWriter = {
+  transaction: (fn) => services.repos.transaction(fn),
+  updateClient: (id, patch, by, diff) => services.updateClient(id, patch, by, diff),
+  updateCustomer: (id, patch, by, diff) => services.updateCustomer(id, patch, by, diff),
+  updateTicket: (id, patch, by, diff) => services.updateTicket(id, patch, by, diff),
+};
+
+/** A plan as the chat verb and the Settings card both want it: counted, and in words. */
+const summarisePull = (plan: PullPlan) => ({
+  ok: true,
+  changes: plan.changes.length,
+  records: plan.records,
+  conflicts: plan.changes.filter((c) => c.conflict).length,
+  unknown: plan.unknown.length,
+  blank: plan.blank.length,
+  problems: plan.problems,
+  refusal: plan.refusal,
+  needsAck: plan.needsAck,
+  lines: plan.changes.map((c) =>
+    `${c.tab.slice(0, -1)} ${c.label} (row ${c.row}): ` +
+    c.fields.map((f) => `${f.header} "${f.from}" → "${f.to}"`).join(', ') +
+    (c.conflict ? ' — also changed in STEWARD' : '')),
 });
 
 // ---- the daily digest (0013) ----
@@ -1112,6 +1145,10 @@ const server = listen((port) => Bun.serve({
             session,
           }, {
             pushSheet: () => sheetsMirror.push(mirrorData()),
+            // PREVIEW only. The verb reports what a pull would change and writes nothing;
+            // applying is POST /sheets/pull/apply, clicked by somebody who read the diff.
+            previewPull: () => sheetsMirror.pullPreview(mirrorData()).then((r) =>
+              (r.ok ? summarisePull(r.plan) : { ok: false, reason: r.reason })),
             // The same actor the door stamps on the intent — a send through this
             // door is somebody at the keyboard, not the clock.
             sendDigest: () => runDigest(localDate(new Date()), 'human').then(recordManualSend),
@@ -1190,9 +1227,45 @@ const server = listen((port) => Bun.serve({
     // is one button away from being shared with anyone. Same reasoning as /update/apply —
     // consent belongs at the moment of the outward-facing act, so it is never automatic.
     '/sheets/push': {
-      POST: async () => {
-        const out = await sheetsMirror.push(mirrorData());
+      POST: async (req: Request) => {
+        // `force` discards edits made in the sheet since the last push. It is a query
+        // parameter rather than a default because the interlock refusing is the normal
+        // case and losing somebody's typing has to be the deliberate one.
+        const force = new URL(req.url).searchParams.get('force') === '1';
+        const out = await sheetsMirror.push(mirrorData(), { force });
         return Response.json(out, { status: out.ok ? 200 : 400 });
+      },
+    },
+
+    // --- reading the mirror back (0011) ---
+    // Two doors on purpose. The preview is the whole defence against a block pasted one
+    // row down — every id real, every value somebody else's — so it is never fused with
+    // the write. POST for both, and for a stronger reason than /sheets/push has: a push
+    // risks showing data to the wrong person, a pull risks there being no data to show.
+    '/sheets/pull': {
+      POST: async () => {
+        const out = await sheetsMirror.pullPreview(mirrorData());
+        if (!out.ok) return Response.json(out, { status: 400 });
+        return Response.json({ ...summarisePull(out.plan), revision: out.revision, actor: out.actor });
+      },
+    },
+    '/sheets/pull/apply': {
+      POST: async (req: Request) => {
+        let body: unknown;
+        try { body = await req.json(); } catch { return Response.json({ error: 'invalid JSON' }, { status: 400 }); }
+        const o = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+        const revision = typeof o.revision === 'string' ? o.revision : '';
+        if (!revision) return Response.json({ ok: false, reason: 'no preview to apply' }, { status: 400 });
+
+        const out = await sheetsMirror.pullApply(
+          mirrorData(),
+          { revision, acknowledge: o.acknowledge === true },
+          (plan, actor) => applyPull(pullWriter, plan, actor),
+        );
+        return Response.json(
+          out.ok ? out : { ...out, ...(out.plan ? summarisePull(out.plan) : {}), ok: false },
+          { status: out.ok ? 200 : 400 },
+        );
       },
     },
 
@@ -1933,43 +2006,149 @@ const server = listen((port) => Bun.serve({
         `<section class="panel"><div class="panel__head"><h2>Google Drive</h2></div><div class="panel__body">` +
         noticeHtml + state + `</div></section>` +
         // --- Google Sheets: one true statement at a time ---
-        // The mirror is one-way and destructive by design, so the card says that BEFORE
-        // the button rather than after someone loses an afternoon's typing in it.
+        // The mirror is destructive in both directions, so the card says so BEFORE the
+        // buttons rather than after someone loses an afternoon's typing.
+        //
+        // 0011 made two of the sentences that used to live here false: it is not read-only
+        // and edits are not lost. It also made the pull a TWO-STEP — see the diff, then
+        // mean it — because the one accident no algorithm can catch is a block pasted a
+        // row down, and the only thing that catches it is a person reading the list.
         (() => {
           const m = sheetsMirror.state();
           const body = !m.configured || !m.connected
             ? `<p class="muted">A mirror needs a connected Google account — connect one above. ` +
               `It uses the same permission Drive already has, so there is nothing further to approve.</p>`
-            : `<p>A read-only spreadsheet of every client, customer, ticket and progress entry, ` +
+            : `<p>A spreadsheet of every client, customer, ticket and progress entry, ` +
               `in the same <strong>${esc(config.google.folderName)}</strong> folder. For reading, filtering ` +
-              `and sharing — STEWARD never reads it back.</p>` +
-              `<p class="muted">Every push rewrites the whole file. <strong>Edits made in the spreadsheet are lost.</strong></p>` +
+              `and sharing — and the <strong>white columns can be edited there</strong>: a pull reads those ` +
+              `back and the sheet wins.</p>` +
+              `<p class="muted">The grey columns are computed by STEWARD and never read back, and column A is ` +
+              `the record id. A pull never creates, deletes or archives anything: a row with no id, and a ` +
+              `record missing from the sheet, both mean nothing at all.</p>` +
+              `<p class="muted">A push rewrites the whole file, and <strong>refuses</strong> if the sheet has ` +
+              `been edited since the last one — pull first, or push anyway and lose those edits.</p>` +
               (m.url
                 ? `<p><a href="${esc(m.url)}" target="_blank" rel="noopener">Open the mirror ↗</a>` +
-                  ` <span class="muted" id="sheet-pushed">${m.pushedAt ? `— last pushed ${esc(m.pushedAt)}` : ''}</span></p>`
+                  ` <span class="muted" id="sheet-pushed">${m.pushedAt ? `— last pushed ${esc(m.pushedAt)}` : ''}</span>` +
+                  ` <span class="muted" id="sheet-pulled">${m.pulledAt ? `· last pulled ${esc(m.pulledAt)}` : ''}</span></p>`
                 : '') +
               `<div class="form-controls"><button type="button" class="btn" id="sheet-push">` +
-              `${m.url ? 'Push now' : 'Create the mirror'}</button></div>` +
+              `${m.url ? 'Push now' : 'Create the mirror'}</button>` +
+              (m.url ? `<button type="button" class="btn" data-variant="soft" id="sheet-pull">Preview a pull</button>` : '') +
+              `</div>` +
               `<p class="form-status" id="sheet-status" hidden></p>` +
+              `<div id="pull-plan" hidden></div>` +
               `<script type="module">
                 const status = document.getElementById('sheet-status');
-                const button = document.getElementById('sheet-push');
+                const push = document.getElementById('sheet-push');
+                const pull = document.getElementById('sheet-pull');
+                const panel = document.getElementById('pull-plan');
                 const stamp = document.getElementById('sheet-pushed');
+                const pulledStamp = document.getElementById('sheet-pulled');
                 const say = (text, ok) => { status.hidden = false; status.textContent = text; status.dataset.ok = String(!!ok); };
-                button.addEventListener('click', async () => {
-                  button.disabled = true;
-                  say('Pushing…');
-                  const r = await fetch('/sheets/push', { method: 'POST' })
-                    .then((x) => x.json()).catch(() => ({ ok: false, reason: 'The push failed to reach Google.' }));
-                  button.disabled = false;
-                  if (!r.ok) { say(r.reason + (r.enableUrl ? ' → ' + r.enableUrl : '')); return; }
+                const post = (url, body) => fetch(url, {
+                  method: 'POST',
+                  ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+                }).then((x) => x.json());
+
+                const doPush = async (force) => {
+                  push.disabled = true;
+                  say(force ? 'Pushing, discarding the sheet\\u2019s edits\\u2026' : 'Pushing\\u2026');
+                  const r = await post('/sheets/push' + (force ? '?force=1' : ''))
+                    .catch(() => ({ ok: false, reason: 'The push failed to reach Google.' }));
+                  push.disabled = false;
+                  if (!r.ok) {
+                    say(r.reason + (r.enableUrl ? ' \\u2192 ' + r.enableUrl : ''));
+                    // The interlock is the one refusal with a second answer, so it gets a
+                    // button rather than a sentence telling the operator to find one.
+                    if (r.stale) {
+                      panel.hidden = false;
+                      panel.replaceChildren(button('Push anyway and lose those edits', () => doPush(true), 'soft'));
+                    }
+                    return;
+                  }
+                  panel.hidden = true; panel.replaceChildren();
                   const counts = Object.entries(r.counts).map(([k, v]) => v + ' ' + k.toLowerCase()).join(', ');
                   say('Pushed ' + counts + '.' + (r.recreated ? ' The previous mirror was gone, so a new one was created.' : '') + (r.note ? ' ' + r.note : ''), true);
                   // Update in place rather than reloading: a reload throws away the very
                   // message the operator clicked to see. The one case that needs the
                   // server's markup back is the FIRST push, which adds the link.
-                  if (stamp) stamp.textContent = '— last pushed ' + r.pushedAt;
+                  if (stamp) stamp.textContent = '\\u2014 last pushed ' + r.pushedAt;
                   else location.reload();
+                };
+                push.addEventListener('click', () => doPush(false));
+
+                const button = (label, onClick, variant) => {
+                  const b = document.createElement('button');
+                  b.type = 'button'; b.className = 'btn'; b.textContent = label;
+                  if (variant) b.dataset.variant = variant;
+                  b.addEventListener('click', onClick);
+                  const wrap = document.createElement('div');
+                  wrap.className = 'form-controls'; wrap.appendChild(b);
+                  return wrap;
+                };
+                const para = (text, muted) => {
+                  const p = document.createElement('p');
+                  // textContent, never innerHTML: these lines carry a customer's own notes.
+                  p.textContent = text; if (muted) p.className = 'muted';
+                  return p;
+                };
+                const list = (items) => {
+                  const ul = document.createElement('ul');
+                  for (const t of items) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+                  return ul;
+                };
+
+                const render = (r) => {
+                  panel.hidden = false;
+                  panel.replaceChildren();
+                  if (r.problems && r.problems.length) {
+                    panel.appendChild(para('Cells that could not be read. Nothing will be written until they are fixed:'));
+                    panel.appendChild(list(r.problems.map((p) => p.where + ' \\u2014 ' + p.message)));
+                  }
+                  if (r.refusal) { panel.appendChild(para(r.refusal)); return; }
+                  if (!r.changes) { panel.appendChild(para('The sheet and STEWARD agree \\u2014 nothing to pull.', true)); }
+                  else {
+                    panel.appendChild(para(r.changes + ' of ' + r.records + ' records would change:'));
+                    panel.appendChild(list(r.lines));
+                  }
+                  const notes = [];
+                  if (r.conflicts) notes.push(r.conflicts + ' of them also changed in STEWARD since the last push; the sheet\\u2019s value wins.');
+                  if (r.unknown) notes.push(r.unknown + ' row(s) carry an id STEWARD does not know, and are skipped.');
+                  if (r.blank) notes.push(r.blank + ' row(s) have no id, and are ignored \\u2014 a pull creates nothing.');
+                  if (notes.length) panel.appendChild(para(notes.join(' '), true));
+                  if (!r.changes) return;
+
+                  if (r.needsAck) {
+                    panel.appendChild(para('That is a lot of records at once. A block pasted one row down looks ' +
+                      'exactly like this \\u2014 every id real, every value somebody else\\u2019s. Read the list above first.'));
+                  }
+                  panel.appendChild(button(
+                    r.needsAck ? 'I have read the list \\u2014 apply it' : 'Apply these changes',
+                    () => apply(r.revision, r.needsAck),
+                  ));
+                };
+
+                const apply = async (revision, acknowledge) => {
+                  say('Applying\\u2026');
+                  const r = await post('/sheets/pull/apply', { revision, acknowledge })
+                    .catch(() => ({ ok: false, reason: 'The pull failed to reach Google.' }));
+                  if (!r.ok) { say(r.reason); return; }
+                  panel.hidden = true; panel.replaceChildren();
+                  say('Applied ' + r.applied + ' change' + (r.applied === 1 ? '' : 's') + ', recorded as ' + r.actor + '.', true);
+                  if (pulledStamp) pulledStamp.textContent = '\\u00b7 last pulled ' + r.pulledAt;
+                };
+
+                if (pull) pull.addEventListener('click', async () => {
+                  pull.disabled = true;
+                  say('Reading the sheet\\u2026');
+                  const r = await post('/sheets/pull')
+                    .catch(() => ({ ok: false, reason: 'The pull failed to reach Google.' }));
+                  pull.disabled = false;
+                  if (r.ok === false && !r.refusal) { say(r.reason + (r.enableUrl ? ' \\u2192 ' + r.enableUrl : '')); return; }
+                  // True either way, but a refusal must not sit under a green tick.
+                  say('Nothing has been written.', !r.refusal && !(r.problems || []).length);
+                  render(r);
                 });
               </script>`;
           return `<section class="panel"><div class="panel__head"><h2>Google Sheets</h2></div>` +

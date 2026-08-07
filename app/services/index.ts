@@ -101,9 +101,10 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
       audit('customer', c.id, 'create', by, input);
       return c;
     },
-    updateCustomer(id: string, patch: Partial<NewCustomer>, by: string): Customer {
+    /** `diff` overrides what the audit row records — see `updateClient`, and 0011's pull. */
+    updateCustomer(id: string, patch: Partial<NewCustomer>, by: string, diff: unknown = patch): Customer {
       const c = repos.customers.update(id, patch);
-      audit('customer', id, 'update', by, patch);
+      audit('customer', id, 'update', by, diff);
       return c;
     },
     searchCustomers(query: string): Customer[] {
@@ -116,9 +117,14 @@ export function makeServices(repos: Repositories, stores?: DocumentStores) {
       audit('ticket', t.id, 'create', by, { ticketId: t.ticketId, ...input });
       return t;
     },
-    updateTicket(id: string, patch: Partial<NewTicket>, by: string): Ticket {
+    /**
+     * `diff` overrides what the audit row records. 0011's pull uses it for one reason:
+     * it stamps `dateLastUpdated` on every ticket it touches, and an operator who edited
+     * one cell must not read "2 details changed" in their own history.
+     */
+    updateTicket(id: string, patch: Partial<NewTicket>, by: string, diff: unknown = patch): Ticket {
       const t = repos.tickets.update(id, patch);
-      audit('ticket', id, 'update', by, patch);
+      audit('ticket', id, 'update', by, diff);
       return t;
     },
     setTicketStatus(id: string, status: TicketStatus, by: string): Ticket {

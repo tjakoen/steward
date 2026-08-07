@@ -1,7 +1,7 @@
 ---
 id: 0011-sheet-driven-writes
 title: STEWARD — the sheet writes back, and the six ways that destroys the database
-status: todo
+status: done
 owner: admin
 created: 2026-08-04
 milestone: M3 (ship it)
@@ -9,40 +9,40 @@ tags: [sheets, google, pull, sync, data-integrity, audit, conflict, destructive]
 tasks:
   - id: sheet-read
     title: The API layer can only write — give app/google/sheets.ts a read
-    status: todo
+    status: done
   - id: mirror-columns
     title: A shape a pull can key on — split the persons join, mark the derived columns
-    status: todo
+    status: done
   - id: coerce
     title: A cell is a string, a number, or a lie — and the lie must not be guessed at
-    status: todo
+    status: done
   - id: pull-plan
     title: The diff, computed without touching the database
-    status: todo
+    status: done
   - id: preview
     title: The dry run, and the blast radius that refuses to apply
-    status: todo
+    status: done
   - id: repo-transaction
     title: A Repositories port that can wrap a whole pull, audit rows included
-    status: todo
+    status: done
   - id: apply
     title: One transaction, through the services, actor `sheet:<account>`
-    status: todo
+    status: done
   - id: interlock
     title: A push that refuses to overwrite an edit nobody pulled
-    status: todo
+    status: done
   - id: guards
     title: The banner stops lying, and the columns say which of them count
-    status: todo
+    status: done
   - id: pull-intent
     title: `sheet.pull` previews and never applies
-    status: todo
+    status: done
   - id: settings-surface
     title: The two-step card — see it, then mean it
-    status: todo
+    status: done
   - id: verify
     title: The gate — every destructive case, executed against a real spreadsheet
-    status: todo
+    status: done
 ---
 
 # STEWARD — sheet-driven writes (0011)
@@ -489,6 +489,126 @@ Then, one at a time:
 - Pull with Google disconnected: a reason, not a throw.
 - And afterwards, 0010's own proof still holds — push, read every tab back, cell-for-cell
   identical to what `mirrorTabs` produced.
+
+## Built and VERIFIED 2026-08-07 — and the three places the plan was wrong
+
+Eleven of the twelve tasks are done, `tsc` is clean and 365 tests pass (48 new). The code
+is `app/google/pull.ts` (new, pure), plus changes to `mirror.ts`, `sheets.ts`, `ports.ts`,
+`sqlite.ts`, `services/index.ts`, `actions/steward.ts`, `server.ts` and `steward.css`.
+`verify` is the only task left, and it is blocked — see below.
+
+Two departures, both deliberate:
+
+**The blast-radius fraction needed a floor of four, and the plan's rule without one is a
+bug.** "More than a quarter of the records" fires on a *single* changed record in a
+three-record workspace, and on two in a nine-record one. A speed bump that fires on
+ordinary work is one the operator learns to click through, which costs exactly the case it
+exists for. `plan.needsAck` is therefore `changes > 25 || (changes >= 4 && changes >
+records / 4)`. Four still trips the shifted paste: that accident moves a block, not a
+couple of rows. Found by a test that asserted the obvious and failed.
+
+**A cell holding exactly what STEWARD wrote is never validated.** This is not in the plan
+and the plan needs it. The push writes `RAW`, so every untouched cell round-trips as an
+identical string; comparing *before* coercing is what stops a pull refusing over a value
+the app itself stored and the validator happens to dislike. Without it, the
+`dateLastUpdated`-in-two-formats wrinkle the survey found — and any future one like it —
+turns a clean identity pull into a refusal on a cell nobody touched. It is the reason the
+identity test can be trusted at all. See the header comment of `app/google/pull.ts`.
+
+Smaller things worth not rediscovering:
+
+- **The header row is READ, never assumed.** Keying on position would write emails into
+  notes with total confidence the day the columns move — and 0011 *does* move them. A
+  mirror missing the new columns refuses with "Push first", which is what the operator's
+  own live spreadsheet did on the first real preview.
+- **The guards are re-applied on every push**, not at birth. A mirror already in the
+  operator's Drive carries 0010's single whole-tab warning over columns that are now read
+  back, so `write()` deletes every existing protected range and re-adds the new set.
+  Column widths stay birth-only — re-running `autoResizeDimensions` would undo the
+  operator's own sizing.
+- **The pullable columns get no protected range at all.** Warning someone away from the
+  cells the whole feature exists to let them edit is the opposite of a guard.
+- **`updateCustomer` and `updateTicket` gained the `diff` override `updateClient` already
+  had**, so a ticket that a pull stamps `dateLastUpdated` on still audits as the one field
+  the operator actually changed.
+
+### The interlock's design was WRONG, and only running it found that
+
+The plan says to compare Drive's `modifiedTime`, storing the one Drive reports after a
+push so that two clocks never have to agree. Measured on 2026-08-07: **Drive lags a Sheets
+content edit by roughly two minutes.** A `values.update` at 02:28 left `modifiedTime` at
+`02:27:56` and `version` at `11`; both moved only at `02:30`. Four consecutive reads
+fifteen seconds apart saw no change.
+
+That is fatal to both guards, because the lag window *is* the window they exist for: the
+operator types and hits push, or previews, reads and clicks. A timestamp guard is blind
+for precisely as long as anyone takes to do either.
+
+Both were rebuilt to need no clock at all:
+
+- **The push interlock asks the sheet.** It reads and plans a pull; any changed record,
+  unreadable cell or half-typed new row refuses the push, naming the counts. This is
+  immediate and exact, and describes the thing actually cared about — *this file holds
+  edits nobody pulled* — rather than a proxy. Editing a **grey** column does not block:
+  those are overwritten by design and the banner says so.
+- **The apply guard is a fingerprint of the plan** (`planFingerprint`), not a revision. It
+  covers the changes, problems and skipped rows — everything the preview put on screen —
+  so an apply proceeds only when the diff is still the one that was read. It also catches
+  a change on the *other* side: if the database moved instead of the sheet, the plan moves
+  with it and the fingerprint follows.
+
+`sheets.modified_at` is gone. Verified live: an edit made seconds before the apply was
+caught, which the timestamp design would have missed entirely.
+
+### Verify — RUN 2026-08-07, against the operator's own mirror. Every case passes.
+
+On a `VACUUM INTO` copy of `data/steward.db`, Google connected as the operator. Executed,
+not reasoned about. The mirror was resynced from the REAL database afterwards, and a final
+preview against it reports zero changes.
+
+- **The identity test.** Push, change nothing, preview: **zero changes**, 14 records.
+- **One edit.** Two `next action` cells: preview named both, apply wrote both, and the
+  audit trail carries exactly two rows, actor `sheet:tjakoen.s@gmail.com`, each diff a
+  single field — `dateLastUpdated` was stamped on the record and kept out of the diff, as
+  intended. Re-preview: zero.
+- **`In Progres` in a status.** Whole pull refused, named `Tickets!F3` with the four legal
+  values — and a valid `title` edit made in the same pull **did not land**, confirmed
+  against the database. Fixed the cell; both then applied together.
+- **Dates.** `4/8/2026` as text: rejected by name. `2026-08-04` as text: applied. A real
+  date cell: the unformatted read returned **`46238`**, and it landed as `2026-08-04` —
+  the same day, so the 1899-12-30 epoch is right.
+- **Blanking.** `notes` cleared. `title` refused. Clearing the last three columns of the
+  **last** row: the read came back **8 cells long against a 12-column header**, and the
+  pull correctly proposed *cleared* rather than silently ignoring them. The trailing-
+  truncation trap is real and the padding is what catches it.
+- **Sort by title:** zero changes. **Blank row inserted:** zero changes, one row reported.
+  **Row deleted:** zero changes, six tickets still in the database.
+- **The shifted paste** (columns B–L moved down one row, every id left in place): 5 of 14
+  records, `needsAck` true, **no refusal** — shown rather than detected, which is the whole
+  design. Applying without the acknowledgement was refused and wrote nothing.
+- **Duplicate id:** whole pull refused, naming the cell. **All ids foreign:** refused
+  outright as the wrong file.
+- **Grey columns** — `customer`, `client code`, `last updated`, `archived`, `customer
+  code`, client `code` — all typed into: **nothing proposed.**
+- **The interlock:** push refused with *"(1 record edited). Pull those edits first, or push
+  anyway and lose them."*; `?force=1` discarded them deliberately; the sheet round-tripped
+  to zero afterwards. A half-typed new row and an unreadable cell each block a push too.
+- **The stale preview:** an edit made seconds after the preview refused the apply.
+- **The STEWARD-side conflict:** a ticket changed through `/intent` *and* in the sheet was
+  flagged in the preview, the sheet won, and the audit trail shows both changes in order
+  under their two different actors.
+- **Disconnected:** a reason, not a throw, and no network call.
+- **0010's own proof still holds:** push, read every tab back — **235 cells, 0 mismatches.**
+
+Driven through the real Settings card in a browser, not just the routes: preview renders
+the diff, flags the conflict, offers **Apply these changes**, and reports *"Applied 1
+change, recorded as sheet:tjakoen.s@gmail.com."*
+
+**One thing NOT verified, and it needs a human:** that Sheets' own warning dialog actually
+fires when typing into a protected grey column. The protected ranges are confirmed present
+with the right per-range descriptions, covering exactly the grey columns and column A and
+leaving every pullable column unprotected — but the dialog itself cannot be triggered
+headlessly.
 
 ## Still open, and deliberately not decided here
 

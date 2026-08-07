@@ -15,7 +15,7 @@ export const STEWARD_ACTIONS = [
   'customer.create', 'customer.update', 'customer.search',
   'customer.archive', 'customer.restore',
   'ticket.create', 'ticket.update', 'ticket.status', 'ticket.progress',
-  'sheet.push', 'digest.send',
+  'sheet.push', 'sheet.pull', 'digest.send',
 ] as const;
 export type StewardAction = (typeof STEWARD_ACTIONS)[number];
 
@@ -76,11 +76,40 @@ export interface SheetPush {
 }
 
 /**
+ * What a pull PREVIEW reports back. Structural, so this module imports no Google code.
+ *
+ * There is no apply here, and that is the design rather than an omission: the whole
+ * argument of 0011 is that a human looks at the diff before it lands, and an AI that could
+ * apply one removes the only defence against a block pasted one row down.
+ */
+export interface SheetPullPreview {
+  ok: boolean;
+  reason?: string;
+  /** Records that would change, and how many exist. */
+  changes?: number;
+  records?: number;
+  conflicts?: number;
+  /** Rows carrying an id STEWARD does not know, and rows carrying no id at all. */
+  unknown?: number;
+  blank?: number;
+  /** Cells that could not be read, in A1 notation. */
+  problems?: { where: string; message: string }[];
+  /** Set when the plan must not be applied at all. */
+  refusal?: string | null;
+  /** Big enough to be the shifted paste; applying needs a second confirmation. */
+  needsAck?: boolean;
+  /** A line per changed record, for the reply. */
+  lines?: string[];
+}
+
+/**
  * Capabilities the composition root lends this vocabulary. Optional: a dispatcher
  * without them refuses the action by name rather than pretending it worked.
  */
 export interface StewardDeps {
   pushSheet?: () => Promise<SheetPush>;
+  /** Previews a pull. There is deliberately no `applySheetPull` — see `SheetPullPreview`. */
+  previewPull?: () => Promise<SheetPullPreview>;
   sendDigest?: () => Promise<DigestSend>;
   /**
    * Move a record's Drive files into (or back out of) the archived folder. Structural, so
@@ -105,11 +134,11 @@ export interface DigestSend {
 
 /** The verbs that reach outside this process, and therefore the ones that return a promise. */
 export type AsyncAction =
-  | 'sheet.push' | 'digest.send'
+  | 'sheet.push' | 'sheet.pull' | 'digest.send'
   | 'client.archive' | 'client.restore' | 'customer.archive' | 'customer.restore';
 
 /**
- * `sheet.push`, `digest.send` and the four archive verbs talk to the outside world, and
+ * `sheet.push`, `sheet.pull`, `digest.send` and the four archive verbs talk to the outside world, and
  * they are the only ones that return a promise. The overloads say exactly that: a
  * caller naming any other action gets a plain result and needs no await, while the
  * door — which only knows it holds *some* action — awaits the union. A second door
@@ -248,6 +277,35 @@ export function dispatchSteward(
           return { ok: true, ops: [],
             reply: `Pushed ${counts} to the Sheets mirror.${r.recreated ? ' The previous mirror was gone, so a new one was created.' : ''}${r.note ? ` ${r.note}` : ''}`,
             data: r };
+        }).catch((e: unknown) => ({
+          ok: false, ops: [], error: e instanceof Error ? e.message : String(e),
+        }));
+      }
+      case 'sheet.pull': {
+        const preview = deps.previewPull;
+        if (!preview) return { ok: false, ops: [], error: 'the Sheets mirror is not configured' };
+        // Unlike `sheet.push`, this verb has something to say — but it still emits no render
+        // op at a surface it cannot see (0009's manifest-truth). And it does not apply:
+        // applying is a POST from the Settings card, by a human who read the diff.
+        return preview().then((r): StewardResult => {
+          if (!r.ok) return { ok: false, ops: [], error: r.reason ?? 'the pull could not be read' };
+          if (r.refusal) return { ok: false, ops: [], error: r.refusal, data: r };
+
+          const n = r.changes ?? 0;
+          const notes = [
+            r.conflicts ? `${r.conflicts} also changed in STEWARD since the last push — the sheet's value would win` : '',
+            r.unknown ? `${r.unknown} row${r.unknown === 1 ? ' carries' : 's carry'} an id STEWARD does not know` : '',
+            r.blank ? `${r.blank} row${r.blank === 1 ? ' has' : 's have'} no id and ${r.blank === 1 ? 'is' : 'are'} ignored` : '',
+          ].filter(Boolean);
+          const body = n
+            ? `The sheet would change ${n} of ${r.records ?? 0} records:\n` +
+              (r.lines ?? []).map((l) => `  ${l}`).join('\n')
+            : 'The sheet and STEWARD agree — nothing to pull.';
+          const tail = notes.length ? `\n${notes.join('. ')}.` : '';
+          const gate = n
+            ? `\nNothing has been written. Apply it in Settings → Google Sheets.${r.needsAck ? ' It is big enough to need a second confirmation.' : ''}`
+            : '';
+          return { ok: true, ops: [], reply: `${body}${tail}${gate}`, data: r };
         }).catch((e: unknown) => ({
           ok: false, ops: [], error: e instanceof Error ? e.message : String(e),
         }));

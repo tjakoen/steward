@@ -29,6 +29,13 @@ const KEY = {
   account: 'google.account', // the signed-in address, shown in Settings
 } as const;
 
+/**
+ * Where the connected address lives, exported because 0011's pull writes audit rows as
+ * `sheet:<account>` and needs to read it. Deliberately the same value Drive named itself
+ * (`about.user.emailAddress`), not something the operator typed.
+ */
+export const GOOGLE_ACCOUNT_KEY = KEY.account;
+
 export interface GoogleOAuthConfig {
   clientId: string;
   /** Google issues one for "Desktop app" clients; it is not truly secret. */

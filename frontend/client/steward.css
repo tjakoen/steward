@@ -394,6 +394,14 @@ form.inline { display: inline; }
   border-color: var(--color-accent, #1C1B17); color: var(--color-accent, #1C1B17);
   background: var(--color-accent-soft, transparent);
 }
+/* A change that arrived through the spreadsheet (0011), actor `sheet:<account>`.
+   The whole point of recording that actor is that a reader scanning the timeline can see
+   at a glance which changes did not come through the app's own doors — and the default
+   rule lowercases everything and styles it like any other operator, so it would not. */
+.audit__actor[data-actor^="sheet:"] {
+  text-transform: none;
+  border-color: var(--color-gold, #C8A15A); color: var(--color-muted, #6E6C64);
+}
 .audit__what { color: var(--color-fg, #1C1B17); }
 .audit__what .sub { color: var(--color-muted, #6E6C64); }
 

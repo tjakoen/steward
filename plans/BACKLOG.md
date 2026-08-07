@@ -77,13 +77,27 @@ and real filtering **CLOSED** (facets work with no JavaScript; both empty states
 `0015` bug reporting **CLOSED** (built in a worktree, merged without conflict; no settings value
 of 8+ characters reaches the report body). 317 tests, `tsc` clean, everything pushed.
 
-**`0011` sheet-driven writes is the only plan left before `0016` release.** It is written and
-unbuilt, and it is the only one that can corrupt data — the sheet becomes the source of truth
-and the database is rewritten to match. Build it in the main tree with a human reviewing, not
-handed wholesale to an agent.
+**`0011` sheet-driven writes is CLOSED (2026-08-07).** All twelve tasks done, `tsc` clean, 370
+tests. The gate was run against the operator's own mirror on a `VACUUM INTO` copy of the
+database: the identity test, the shifted paste, the duplicate id, the wrong file, the bad
+status, all three date forms, the trailing-truncation trap, the interlock, the stale preview
+and the STEWARD-side conflict all behave as designed, and 0010's cell-for-cell proof still
+holds at 235 cells and 0 mismatches. The mirror was resynced from the real database
+afterwards and previews zero.
 
-**`0016` release is gated on `0011`** by the operator's own call: nothing is released until every
-plan is done.
+Read `plans/0011-sheet-driven-writes.md` § "Built and VERIFIED 2026-08-07" before touching
+any of it: **the plan's interlock design was wrong and only running it found that.** Drive's
+`modifiedTime` lags a Sheets content edit by ~2 minutes (measured), which is exactly the
+window both guards exist for. The push interlock now diffs the sheet, and the apply guard is
+a fingerprint of the plan the operator read. No clocks anywhere.
+
+**`0016` release is now the only plan left.** Its one un-run check needs a human at a
+keyboard: that Sheets' own warning dialog fires when typing into a grey column. The protected
+ranges are confirmed correct; the dialog cannot be triggered headlessly.
+
+Answered 2026-08-07: **the 09:30 scheduled digest HAS fired on its own** — 0013's scheduler is
+proven, not just its manual send. Still unanswered, and still only the operator can: nobody has
+run the Windows exe, and Cloud Console has not been touched since 0010.
 
 **`plans/0013-daily-digest.md` IS CLOSED (2026-08-06).** A real email reached a real mailbox
 with its attachments intact — the one step that could not be faked. Getting there took three

@@ -1,5 +1,8 @@
 import { test, expect } from 'bun:test';
-import { headersFor, mirrorCounts, mirrorTabs, TAB_TITLES, type MirrorData } from './mirror.ts';
+import {
+  PULL_COLUMNS, PULL_TABS, TAB_TITLES,
+  derivedHeaders, headersFor, mirrorCounts, mirrorTabs, type MirrorData,
+} from './mirror.ts';
 import type { Client, Customer, Ticket } from '../domain/types.ts';
 
 const AT = '2026-08-01T10:00:00.000Z';
@@ -44,9 +47,66 @@ test('every tab leads with the banner, then the header', () => {
   const tabs = mirrorTabs(data(), AT);
   expect(tabs.map((t) => t.title)).toEqual([...TAB_TITLES]);
   for (const tab of tabs) {
-    expect(tab.rows[0][0]).toContain('edits made here are lost');
+    expect(tab.rows[0][0]).toContain('STEWARD mirror');
     expect(tab.rows[0][0]).toContain(AT); // a stale mirror that looks live is the other lie
     expect(tab.rows[1]).toEqual(headersFor(tab.title as never));
+  }
+});
+
+// 0011 — the banner used to say "edits made here are lost", full stop. That was true while
+// the mirror only wrote; the day a pull exists it is false for most of the file and still
+// true for the rest, and only naming both halves is honest.
+test('the banner distinguishes the two kinds of column, and Progress says it is different', () => {
+  const tabs = mirrorTabs(data(), AT, '2026-08-06T09:00:00.000Z');
+  const banner = (title: string) => String(tabs.find((t) => t.title === title)!.rows[0][0]);
+
+  for (const title of ['Clients', 'Customers', 'Tickets']) {
+    expect(banner(title)).toContain('The white columns are read back');
+    expect(banner(title)).toContain('Column A is the record id');
+    expect(banner(title)).toContain('Last pulled: 2026-08-06T09:00:00.000Z');
+    expect(banner(title)).not.toContain('edits made here are lost');
+  }
+  expect(banner('Progress')).toContain('never read back');
+  expect(banner('Progress')).not.toContain('white columns');
+  // Never pulled is stated, not left blank — a missing stamp reads as an unfinished sentence.
+  expect(String(mirrorTabs(data(), AT)[0].rows[0][0])).toContain('Last pulled: never');
+});
+
+// The four person columns exist because "Family, Given and Family, Given" is not
+// invertible, and a CRM whose spreadsheet is the source of truth but cannot fix a
+// misspelled surname is not the feature that was asked for.
+test('Customers carries the readable join AND the four fields a pull can put back', () => {
+  const joint = customer({ persons: [{ given: 'Gareth', family: 'Reed' }, { given: 'Emma', family: 'Claessen' }] });
+  const headers = headersFor('Customers');
+  const row = tabNamed('Customers', data({ customers: [joint] })).rows[2];
+  const cell = (h: string) => row[headers.indexOf(h)];
+
+  expect(cell('persons')).toBe('Reed, Gareth and Claessen, Emma');
+  expect([cell('given'), cell('family')]).toEqual(['Gareth', 'Reed']);
+  expect([cell('given 2'), cell('family 2')]).toEqual(['Emma', 'Claessen']);
+});
+
+test('a single customer leaves the second pair blank rather than repeating the first', () => {
+  const headers = headersFor('Customers');
+  const row = tabNamed('Customers').rows[2];
+  expect(row[headers.indexOf('given 2')]).toBe('');
+  expect(row[headers.indexOf('family 2')]).toBe('');
+});
+
+test('the grey columns are exactly the ones a pull refuses to write', () => {
+  // Each of these is dangerous rather than merely useless: writing a ticket's client code
+  // reads like a request to re-parent it, through a column that is not the parent's key.
+  expect(derivedHeaders('Tickets')).toEqual(
+    ['ticket id', 'customer', 'client code', 'last updated'],
+  );
+  expect(derivedHeaders('Clients')).toEqual(['code', 'archived', 'created', 'updated']);
+  expect(derivedHeaders('Customers')).toEqual(
+    ['client code', 'customer code', 'persons', 'archived', 'created', 'updated'],
+  );
+  // Nothing is both read back and computed.
+  for (const tab of PULL_TABS) {
+    const grey = new Set(derivedHeaders(tab));
+    for (const c of PULL_COLUMNS[tab]) expect(grey.has(c.header)).toBe(false);
   }
 });
 

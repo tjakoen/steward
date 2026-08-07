@@ -169,4 +169,15 @@ export interface Repositories {
   audit: AuditRepository;
   documents: DocumentRepository;
   settings: SettingsRepository;
+  /**
+   * Run `fn` as one unit: everything it wrote, or nothing (0011).
+   *
+   * Added for the sheet pull, which is all-or-nothing across many records and has to cover
+   * THE WRITES AND THEIR AUDIT ROWS TOGETHER — `audit.append` is a separate INSERT, and a
+   * rollback that spared it would leave a history of changes that did not happen.
+   *
+   * SYNCHRONOUS on purpose: `bun:sqlite` transactions are, so a callback that awaited would
+   * commit early and quietly. Callers do their fetching and validating first.
+   */
+  transaction<T>(fn: () => T): T;
 }

@@ -512,5 +512,8 @@ export function sqliteRepositories(database: Database = db()): Repositories {
     audit: new SqliteAuditRepository(database),
     documents: new SqliteDocumentRepository(database),
     settings: new SqliteSettingsRepository(database),
+    // The same `Database.transaction` the migration ladder already runs on (db.ts).
+    // `transaction()` returns a function; calling it is what opens and commits.
+    transaction: <T>(fn: () => T): T => database.transaction(fn)(),
   };
 }

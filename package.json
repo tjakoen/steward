@@ -1,6 +1,6 @@
 {
   "name": "steward",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "module": "server.ts",
   "dependencies": {
     "@tjakoen/batch": "^0.2.0",

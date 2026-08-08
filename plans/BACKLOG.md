@@ -113,17 +113,67 @@ network with the running binary untouched, and an in-app update is confirmed **n
 `com.apple.quarantine` — Gatekeeper is a first-download problem only. Details in
 `plans/0016-release.md` § "`v0.3.1` — the second release".
 
-**Two things left.** `windows-check` — nobody has ever run the exe, and it can now be had
-from either release or from run `31159428657`'s artifact.
+**One thing left: `windows-check`.** Nobody has ever run the exe, and it can now be had from
+either release or from run `31159428657`'s artifact.
 
-And **the Picker fails with *"The API developer key is invalid"***, tried on the running
-`0.3.1` with a connected account. **Not a build fault and not the referrer list**: the baked
-key is byte-identical to `.env`, and a referrer probe shows only the *empty* referrer is
-blocked while both `:3211` and `:3000` pass and are stopped at the **selected-APIs** stage
-instead. So the key carries an API-restriction list, and the fix is one of two Console
-checkboxes on project `308363978170` — enable **Google Picker API**, and include it in the
-key's *Restrict key* list. Latent since 2026-08-06, when the restrictions were added; `0006`
-saw the Picker mount on 2026-08-01 while the key was unrestricted.
+**THE PICKER WORKS — closed 2026-08-08, and the 2026-08-07 diagnosis above was wrong.** It
+opens and lists Drive files on the released `v0.3.1` binary run with no `.env` in reach. The
+cause was **the HTTP-referrer restriction**, exactly what the referrer probe had ruled out;
+switching application restrictions off on `GOOGLE_API_KEY` fixed it with no code and no
+release. The probe's error was inferential, not measurement: **the Picker sends an empty
+referrer**, not the page's origin, so the only row of that probe describing the Picker was
+the `<empty>` one it dismissed as irrelevant. Adding `http://localhost:3000/*` on 2026-08-07
+could never have helped. Do not re-run the origin probe — it measures a call that was never
+the failing one.
+
+**A headless browser cannot verify this**, and a future session will be tempted to try: a
+Picker built with the real key in an agent-driven browser mounts its iframe and renders
+Google's *sign-in* wall, because the headless profile has no Google cookies. That wall sits
+in front of the key check, so it is not a pass. Only a signed-in human browser answers.
+
+## Every Google credential is extractable from the published binaries — `0017`
+
+Measured 2026-08-08 on the published mac binary, with `strings`: the API key, the OAuth client
+id, the **client secret** `GOCSPX-…` and the project number all come out. **Project
+`308363978170` has billing attached**, so this is a bill and not only a rate limit.
+
+**STEWARD is being open sourced, and that is what makes the old trade indefensible.** `0016`
+accepted baked credentials because the audience was the operator and one friend. A public repo
+with public binaries means every stranger connects through the operator's project, spends the
+operator's quota, under the operator's consent screen.
+
+**DECIDED 2026-08-08: the binary ships with NOTHING.** Not baked-with-override — that was
+explicitly rejected as convenience with the leak intact. All four values move to a Settings
+card the operator pastes into, and the operator hands credentials to their own users out of
+band. `plans/0017-operator-held-credentials.md`, status `doing`.
+
+**FIVE OF NINE TASKS ARE DONE, 2026-08-08** — `credential-source`, `settings-card`,
+`google-copy`, `unbake`, `readme-byo`. 388 tests, `tsc` clean. **The gate passed**: a mac
+binary built from a tree whose `.env` holds all four real values contains none of them —
+no `AIza`, no `GOCSPX-`, no `.apps.googleusercontent.com`, no `308363978170`. A packaged
+binary with no `.env` in reach boots, serves `/components.css` at 138,028 bytes, creates
+records, and says what Google needs in sentences a downloader can act on; pasting the four
+values into Settings makes OAuth work **with no restart**; the bug report contains zero
+occurrences of any of them. Details in the plan's "Built and VERIFIED" section.
+
+**The three remaining tasks are all Cloud Console and all the operator's**: `quota-caps`
+(do first — the old credentials are public NOW against a billed project), then `rotate` and
+`restrict` after the next release ships.
+
+Three consequences recorded there and worth knowing before reading it:
+
+- **A whole class of release bug disappears.** With no build-time secrets, the failure that
+  produced `v0.3.0` — four empty Actions secrets, green CI, Google dead in the release —
+  becomes impossible. `0016`'s `total_count` pre-tag check gets deleted, not adjusted.
+- **`0017` is worthless without `rotate`.** A new release does not un-publish `v0.3.0` and
+  `v0.3.1`. The old key AND the old OAuth client have to be **deleted** in Console after new
+  ones are handed out.
+- **`quota-caps` comes FIRST, before the plan is even scheduled.** The credentials are public
+  now against a billed project; a budget alert plus quota ceilings on Drive and Picker APIs is
+  the only guard that exists until the rest ships.
+
+The new key's guard is API restrictions — **Google Picker API only** — never the referrer
+list, which the Picker cannot work with.
 
 **THE OVERDUE THING IS DONE, AND IT WAS NOT THE BLOCKER.** The operator added
 `http://localhost:3000/*` to `GOOGLE_API_KEY`'s HTTP-referrer list on 2026-08-07, alongside

@@ -19,15 +19,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // actually used, rather than a plausible one that silently reads the wrong file.
 const GRAIN = PACKAGED ? '' : dirname(fileURLToPath(import.meta.resolve('@tjakoen/grain/PLAN.md')));
 
-// Build-time constants, substituted by `scripts/build.ts` via --define and left as the
-// empty string in a checkout (where .env supplies them). Written as `process.env.X` reads
-// rather than bare globals on purpose: --define replaces the whole expression in a build,
-// and in dev it is just an undefined property — no ReferenceError, no shim, no .d.ts.
-const BUILD_GOOGLE_CLIENT_ID = process.env.BUILD_GOOGLE_CLIENT_ID ?? '';
-const BUILD_GOOGLE_CLIENT_SECRET = process.env.BUILD_GOOGLE_CLIENT_SECRET ?? '';
-const BUILD_GOOGLE_API_KEY = process.env.BUILD_GOOGLE_API_KEY ?? '';
-const BUILD_GOOGLE_PROJECT_NUMBER = process.env.BUILD_GOOGLE_PROJECT_NUMBER ?? '';
-
 export const config = {
   isDev,
   /** True only in a `bun build --compile` artifact. */
@@ -67,29 +58,21 @@ export const config = {
   // :root, selected by dropping the attribute). GRAIN hardcodes none.
   themes: 'sourdough baguette brioche',
 
-  // Google OAuth (installed-app flow). The client id/secret identify the APP,
-  // not the operator — one registration serves every install, and each person
-  // signs in with their own account. Desktop client secrets are not truly
-  // secret (Google says so); PKCE is what protects the exchange.
+  // Google OAuth (installed-app flow), minus every credential.
   //
-  // Which is why a release binary BAKES them in (`scripts/build.ts` --define, values from
-  // CI secrets so they never enter the tree). The alternative — a hand-placed file — means
-  // a freshly downloaded exe has no Drive until someone edits config, and that is not a
-  // shipped product. Env still wins over the baked value, so a different registration
-  // needs no rebuild; and a build with no secrets configured yields a working binary with
-  // Drive switched off, not a broken one.
+  // **The four secret-shaped values are NOT here, and must not come back** (0017). They
+  // live in `settings` and are read through `app/google/credentials.ts`, for two reasons
+  // that this object cannot satisfy:
+  //
+  //   - It is frozen at boot. The operator pastes credentials into a RUNNING app and
+  //     expects Connect Google Drive to work without a restart.
+  //   - A value in `config` is not a value in `settings`, and 0015's bug-report redaction
+  //     sweeps `settings`. Baked credentials were never covered by it.
+  //
+  // What remains here is the part that is neither secret nor operator-specific.
   google: {
-    clientId: Bun.env.GOOGLE_CLIENT_ID ?? BUILD_GOOGLE_CLIENT_ID,
-    clientSecret: Bun.env.GOOGLE_CLIENT_SECRET ?? BUILD_GOOGLE_CLIENT_SECRET,
     /** Must match a redirect URI registered on the OAuth client. */
     redirectPath: '/oauth/google/callback',
-    // The Google Picker — the only way to link a file STEWARD did not create —
-    // needs two things the OAuth client does not carry: a browser API key, and
-    // the Cloud project NUMBER. The number is what tells Drive which app to
-    // grant per-file access to when the operator picks something; without it a
-    // pick under `drive.file` yields a file we still cannot read.
-    apiKey: Bun.env.GOOGLE_API_KEY ?? BUILD_GOOGLE_API_KEY,
-    projectNumber: Bun.env.GOOGLE_PROJECT_NUMBER ?? BUILD_GOOGLE_PROJECT_NUMBER,
     /** Folder created in the operator's own Drive to hold STEWARD's files. */
     folderName: Bun.env.GOOGLE_DRIVE_FOLDER ?? 'STEWARD',
   },

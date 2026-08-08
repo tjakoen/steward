@@ -33,12 +33,11 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      # No credentials in the environment, by design (0017). A published binary carries
+      # none: the operator pastes them into Settings. This also removes the failure that
+      # shipped v0.3.0 — four unset secrets substituted four empty strings and CI went
+      # green over a release with Google entirely switched off.
       - name: Build the Windows binary
-        env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GOOGLE_PROJECT_NUMBER: ${{ secrets.GOOGLE_PROJECT_NUMBER }}
         run: bun run build:win
       - uses: actions/upload-artifact@v4
         with:
@@ -88,15 +87,10 @@ jobs:
           name: steward-windows-x64
           path: dist
 
+      # Same as the Windows job: nothing secret in the environment, because nothing secret
+      # goes into a binary any more (0017). A fork can build a release with no secrets
+      # configured and get exactly what this repo gets.
       - name: Build the other two
-        env:
-          # Baked into the binary — see scripts/build.ts and config.ts for why an
-          # installed-app client secret travels this way. Unset secrets yield a working
-          # binary with Drive switched off, so a fork's release still builds.
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GOOGLE_PROJECT_NUMBER: ${{ secrets.GOOGLE_PROJECT_NUMBER }}
         run: bun run build darwin linux
 
       # The manifest is checked in, and `bun run build` regenerates it. If that changed

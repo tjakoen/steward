@@ -22,6 +22,9 @@ tasks:
   - id: ci-rehearsal
     title: Make workflow_dispatch a real rehearsal — full gate, three artifacts, nothing published
     status: done
+  - id: picker-console
+    title: The Picker's invalid-key error — a Console setting, and which one it really was
+    status: done
   - id: windows-check
     title: The script for the person with a Windows machine, and what each answer means
     status: blocked
@@ -676,3 +679,55 @@ own `~/Library/Application Support/STEWARD`, empty before this session. The clie
 and ticket created to render that PDF have been deleted; `clients`, `customers`, `tickets`,
 `audit`, `ticket_seq` and `documents` are all back to 0 rows. The four `settings` rows are
 the operator's Google tokens and were deliberately kept, so the app is still connected.
+
+### `picker-console` — CLOSED 2026-08-08. The Picker works, and it was the referrer after all
+
+**The Picker opens and lists Drive files** on the released `v0.3.1` binary, run from
+`~/Local/steward-parked` with `PORT=3211` and no `.env` in reach, with the operator's Google
+account connected. That is the last Google-shaped path in the product, and it is now
+*demonstrated* rather than merely *credentialed*. The fix needed no code and no new release.
+
+**The cause was the HTTP-referrer restriction on `GOOGLE_API_KEY` — not the API-restriction
+list**, which is the opposite of what the 2026-08-07 probe concluded. Turning application
+restrictions off fixed it immediately. The probe was not wrong about what it measured; it was
+wrong about what it implied:
+
+```
+Referer <empty>            "Requests from referer <empty> are blocked."   ← this was the Picker
+Referer localhost:3211/    stopped later, at the selected-APIs stage
+Referer localhost:3000/    stopped later, at the selected-APIs stage
+```
+
+The probe reasoned that because `:3211` cleared the referrer stage, the referrer list was
+innocent. **The Picker does not send the page's origin.** Its own call presents an empty
+referrer, so the only row of that table that describes the Picker is the first one — the row
+the probe dismissed. Adding `http://localhost:3000/*` on 2026-08-07 could never have helped
+for the same reason. The lesson is narrower than "measure it": *measure the call that is
+actually failing*, not a different call from the same origin.
+
+**A headless browser cannot run this check.** A Picker built with the real key and token in an
+agent-driven browser at `localhost:3211` mounted its iframe from
+`docs.google.com/picker?…&origin=http%3A%2F%2Flocalhost%3A3211` and rendered Google's
+*"Sign in to your Google Account"* wall, because the headless profile carries no Google
+cookies. That is **not** evidence the key is good — the sign-in wall sits in front of the key
+check, and the real browser, signed in, still answered *"The API developer key is invalid."*
+one minute later. Do not read a headless Picker as a pass.
+
+#### The security consequence, accepted knowingly
+
+`tjakoen/steward` is public and `GOOGLE_API_KEY` is baked into published binaries, so it is
+extractable by anyone who downloads one. The referrer allowlist was that key's only guard, and
+it is now switched off — an extracted key can spend the project's quota.
+
+The replacement guard is the **API-restriction** list, which the Picker tolerates and the
+referrer list is not: restrict the key to **Google Picker API only**, so an extracted key can
+open a picker and do nothing else. Left as the standing recommendation for before the next
+tag; the key currently carries whatever list was on it on 2026-08-06.
+
+Verification ran against the packaged data directory again and cleaned up after itself: the
+`Picker Check` client created to reach the **Link from Drive** button has been deleted, and
+`clients`, `customers`, `tickets`, `audit`, `ticket_seq` and `documents` are back to 0 rows.
+The Google tokens in `settings` were kept, as before.
+
+**`0016` still does not close.** `windows-check` is the only task left, and `verify` waits on
+it. Nobody has run the exe.

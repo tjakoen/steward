@@ -108,6 +108,51 @@ OLLAMA_URL=http://localhost:11434
 CHROME_PATH=/path/to/chrome
 ```
 
+### Google Drive, and why it is switched off when you first run this
+
+**STEWARD ships with no Google credentials in it.** A released binary contains no
+client id, no client secret and no API key — deliberately, because this
+repository and its releases are public, and anything compiled into a download
+can be read straight back out of it. So Drive, the Google Picker and the Sheets
+mirror are all inert until somebody supplies credentials.
+
+Everything that is not Google works from the first launch: clients, customers,
+tickets, branded PDFs, the local document store and the daily digest over SMTP.
+Documents are stored on this machine instead of in Drive.
+
+To switch Google on, open **Settings → Google credentials** and paste four
+values. They are stored on your machine only, are never displayed back, and are
+excluded from bug reports.
+
+**If somebody gave you credentials for their project**, paste them and you are
+done. **If you are running your own copy**, make your own — once, at
+[console.cloud.google.com](https://console.cloud.google.com):
+
+1. Create a project. Note its **project number** (Console home, not the project
+   *id* — the number is digits only).
+2. **APIs & Services → Library**: enable **Google Drive API**, **Google Picker
+   API**, and **Google Sheets API** if you want the sheet mirror.
+3. **Google Auth Platform → Branding**: app name and support emails.
+4. **Data Access**: add the scope `.../auth/drive.file`. It is non-sensitive, so
+   no verification review is required.
+5. **Audience: publish the app to Production.** While it sits in Testing, Google
+   expires refresh tokens after 7 days and you have to reconnect every week.
+6. **Credentials → Create credentials → OAuth client ID**, type **Desktop app**.
+   Desktop clients accept loopback redirects on any port, so there is nothing to
+   register. This gives you the **client id** and **client secret**.
+7. **Credentials → Create credentials → API key**. This is the **API key**, and
+   it is only needed for **Link from Drive**.
+
+On that last key, one thing worth getting right the first time: restrict it
+under **API restrictions** to **Google Picker API** and nothing else, and leave
+**Application restrictions** set to **None**. An HTTP-referrer restriction
+cannot work — the Picker's own request carries an empty referrer, so no
+allowlist can match it, and the symptom is *"The API developer key is invalid"*
+with nothing on screen to suggest the cause.
+
+Developers working from a checkout can keep using `.env` instead; the Settings
+values simply take precedence when both exist.
+
 ### When nothing appears
 
 `steward.log`, in the data directory above. This matters most on Windows,

@@ -26,20 +26,24 @@ const TARGETS: Target[] = [
 /**
  * Build-time constants, substituted into `config.ts`.
  *
- * The Google client id and secret are BAKED IN on purpose. `config.ts` argues it at
- * length: an installed-app client secret is not truly secret — Google says so — and PKCE
- * is what protects the exchange. The alternative is an exe that has no Drive until
- * somebody hand-edits a file, which is not a shipped product. Values come from the
- * environment (CI secrets), so they never enter the tree; an unset one yields a working
- * binary with Drive switched off rather than a broken one.
+ * **No credential appears here, and none may be added.** Until 0017 this block baked the
+ * Google client id, client secret, API key and project number in from CI secrets, on the
+ * reasoning that a Desktop client secret is not truly secret and that an exe with no Drive
+ * until somebody edits a file is not a shipped product.
+ *
+ * Open sourcing killed that argument. The repository and its releases are public, so
+ * `strings` over a published binary handed anyone all four — measured on `v0.3.1`, not
+ * feared — and the project has billing attached. The operator now pastes credentials into
+ * Settings (`app/google/credentials.ts`) and hands them to their own users out of band.
+ *
+ * A second thing died with them, worth keeping dead: `v0.3.0` shipped with Google entirely
+ * switched off because four Actions secrets had never been set, `--define` substituted four
+ * empty strings, and CI stayed green through all of it. With no build-time secrets there is
+ * no such failure to have.
  */
 const defines: Record<string, string> = {
   'process.env.STEWARD_PACKAGED': '"true"',
   'process.env.STEWARD_VERSION': JSON.stringify(VERSION),
-  'process.env.BUILD_GOOGLE_CLIENT_ID': JSON.stringify(Bun.env.GOOGLE_CLIENT_ID ?? ''),
-  'process.env.BUILD_GOOGLE_CLIENT_SECRET': JSON.stringify(Bun.env.GOOGLE_CLIENT_SECRET ?? ''),
-  'process.env.BUILD_GOOGLE_API_KEY': JSON.stringify(Bun.env.GOOGLE_API_KEY ?? ''),
-  'process.env.BUILD_GOOGLE_PROJECT_NUMBER': JSON.stringify(Bun.env.GOOGLE_PROJECT_NUMBER ?? ''),
 };
 
 async function run(cmd: string[]): Promise<void> {

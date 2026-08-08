@@ -104,8 +104,13 @@ export function makeSheetsMirror(
   auth: GoogleAuth,
   folderName = 'STEWARD',
   fetchImpl: Fetcher = fetch,
-  clientId = '',
+  // Read on demand, not captured. Since 0017 the client id is operator-held and can be
+  // pasted into Settings while this mirror already exists; a captured empty string would
+  // leave the surface saying "not configured" until the next restart. Tests pass a plain
+  // string, which is the whole reason the union is here rather than a bare thunk.
+  clientId: string | (() => string) = '',
 ) {
+  const readClientId = (): string => (typeof clientId === 'function' ? clientId() : clientId);
   const call = async <T>(url: string, init: RequestInit = {}, token?: string): Promise<T> => {
     const res = await fetchImpl(url, {
       ...init,
@@ -378,7 +383,7 @@ export function makeSheetsMirror(
   return {
     state(): MirrorState {
       return {
-        configured: Boolean(clientId),
+        configured: Boolean(readClientId()),
         connected: Boolean(auth.status().connected),
         url: settings.get(KEY.url),
         pushedAt: settings.get(KEY.pushedAt),

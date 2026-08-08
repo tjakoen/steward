@@ -32,6 +32,10 @@ import { db } from './app/repo/db.ts';
 import { sqliteRepositories } from './app/repo/sqlite.ts';
 import { makeServices, type DocumentStores } from './app/services/index.ts';
 import { makeGoogleAuth, makeVerifier, challengeFor, authUrl, GOOGLE_SCOPE } from './app/google/oauth.ts';
+import {
+  makeCredentials, normaliseCredential, parseCredentialBlob, shapeComplaint,
+  type CredentialField,
+} from './app/google/credentials.ts';
 import { GoogleDriveStore } from './app/google/drive.ts';
 import { makeSheetsMirror } from './app/google/sheets.ts';
 import { applyPull, type PullPlan, type PullWriter } from './app/google/pull.ts';
@@ -85,9 +89,14 @@ const repos = sqliteRepositories();
 // has to be one this process is really listening on. Desktop OAuth clients
 // accept any loopback port, so this needs no registration.
 let listeningPort = config.port;
+// The credentials themselves are operator-held and live in `settings` (0017). Every field
+// below is a GETTER for the same reason `redirectUri` already was: the value is not known
+// at construction time and must not be captured. Someone pasting a client id into Settings
+// gets a working Connect button on the next click, with no restart.
+const credentials = makeCredentials(repos.settings);
 const googleAuth = makeGoogleAuth(repos.settings, {
-  clientId: config.google.clientId,
-  clientSecret: config.google.clientSecret,
+  get clientId() { return credentials.read('clientId'); },
+  get clientSecret() { return credentials.read('clientSecret'); },
   get redirectUri() { return `http://127.0.0.1:${listeningPort}${config.google.redirectPath}`; },
 });
 
@@ -107,7 +116,7 @@ const services = makeServices(repos, documentStores);
 // out only — SQLite stays the source of truth, and a spreadsheet that wrote back would
 // change records with no actor, no timestamp and no diff (plans/0010-sheets-sync.md).
 const sheetsMirror = makeSheetsMirror(
-  repos.settings, googleAuth, config.google.folderName, fetch, config.google.clientId,
+  repos.settings, googleAuth, config.google.folderName, fetch, () => credentials.read('clientId'),
 );
 /**
  * Move an archived record's Drive files into STEWARD/Archived, and back on restore (0012).
@@ -1270,6 +1279,106 @@ const server = listen((port) => Bun.serve({
     },
 
     // --- the daily digest (0013) ---
+    // --- The four Google values the binary stopped carrying (0017) ---
+    //
+    // Same contract as `/digest/settings` below, for the same reason: an empty box means
+    // "leave it alone", never "erase it". The card never renders a stored value back, so an
+    // empty box is what an unchanged form always looks like, and treating that as a deletion
+    // would wipe the credentials every time somebody corrected a typo in one of the others.
+    // Erasing is the explicit `forget` checkbox.
+    '/google/credentials': {
+      POST: async (req: Request) => {
+        const form = await req.formData();
+        if (form.get('forget')) {
+          for (const f of ['clientId', 'clientSecret', 'apiKey', 'projectNumber'] as CredentialField[]) {
+            credentials.clear(f);
+          }
+          // A connection made with credentials that are now gone cannot be refreshed, so
+          // leaving it "connected" would be a lie that only surfaces at the next API call.
+          googleAuth.disconnect();
+          return backTo('/settings?cred=cleared');
+        }
+
+        // Validated as a batch before anything is written: a half-applied paste — new
+        // client id, old secret — is a state nobody asked for and it fails at connect time
+        // with an error that names neither field.
+        const pending: [CredentialField, string][] = [];
+        for (const f of ['clientId', 'clientSecret', 'apiKey', 'projectNumber'] as CredentialField[]) {
+          const value = normaliseCredential(String(form.get(f) ?? ''));
+          if (!value) continue; // unchanged
+          const complaint = shapeComplaint(f, value);
+          if (complaint) return backTo(`/settings?cred=${encodeURIComponent(complaint)}`);
+          pending.push([f, value]);
+        }
+        for (const [f, value] of pending) credentials.write(f, value);
+        return backTo('/settings?cred=saved');
+      },
+    },
+    // Paste or upload, rather than four copy-pastes between two windows.
+    //
+    // Multipart because it carries bytes — the same reason `/files/upload` is not an
+    // /intent. Google's own `client_secret_*.json` is the expected input: the operator
+    // already downloaded it when they made the client, and asking them to retype values
+    // out of a file they are holding is how a transcription error gets in.
+    '/google/credentials/import': {
+      POST: async (req: Request) => {
+        const form = await req.formData();
+        const file = form.get('file');
+        const pasted = String(form.get('json') ?? '').trim();
+        const text = file instanceof File && file.size ? await file.text() : pasted;
+        // Encoded like every other message on this route: `backTo` puts the string in a
+        // Location header, and a bare non-ASCII character there is a TypeError, not a
+        // mangled sentence. The em dash in this one turned an empty submit into a 500.
+        if (!text) {
+          return backTo(`/settings?cred=${encodeURIComponent('Nothing to import — paste JSON or choose a file.')}`);
+        }
+
+        const { values, complaints } = parseCredentialBlob(text);
+        // Every imported value goes through the SAME shape check as a typed one. A file is
+        // not more trustworthy than a keyboard; it is only less tiring.
+        const pending: [CredentialField, string][] = [];
+        for (const [field, raw] of Object.entries(values) as [CredentialField, string][]) {
+          const value = normaliseCredential(raw);
+          const complaint = shapeComplaint(field, value);
+          if (complaint) return backTo(`/settings?cred=${encodeURIComponent(complaint)}`);
+          pending.push([field, value]);
+        }
+        if (!pending.length) {
+          return backTo(`/settings?cred=${encodeURIComponent(complaints[0] ?? 'Nothing usable in that file.')}`);
+        }
+        for (const [f, value] of pending) credentials.write(f, value);
+        const what = `Imported ${pending.length} value${pending.length === 1 ? '' : 's'}.`;
+        return backTo(`/settings?cred=${encodeURIComponent(complaints.length ? `${what} ${complaints[0]}` : what)}`);
+      },
+    },
+    // The other half of sharing: produce the file to hand to somebody else.
+    //
+    // A download rather than text on the page, deliberately. This prints every credential
+    // this machine holds in one copyable blob, which is also the easiest way to leak them,
+    // so it takes an explicit click and lands in a file the operator then chooses what to
+    // do with — rather than sitting in the settings markup for anyone glancing at the
+    // screen, or in the clipboard by accident.
+    '/google/credentials/export': {
+      GET: () => {
+        const all = credentials.all();
+        if (!all.clientId && !all.apiKey) {
+          return backTo(`/settings?cred=${encodeURIComponent('Nothing to export yet.')}`);
+        }
+        const body = JSON.stringify({
+          clientId: all.clientId,
+          clientSecret: all.clientSecret,
+          apiKey: all.apiKey,
+          projectNumber: all.projectNumber,
+        }, null, 2);
+        return new Response(body, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Disposition': 'attachment; filename="steward-google-credentials.json"',
+            'Cache-Control': 'no-store',
+          },
+        });
+      },
+    },
     '/digest/settings': {
       POST: async (req: Request) => {
         const form = await req.formData();
@@ -1657,9 +1766,11 @@ const server = listen((port) => Bun.serve({
     // --- Google connection (OAuth: user consent, PKCE, loopback) ---
     '/oauth/google/start': {
       GET: async () => {
-        if (!config.google.clientId) {
-          return new Response('No Google client id configured — set GOOGLE_CLIENT_ID.', { status: 400 });
-        }
+        // Since 0017 the binary ships with no credentials, so "not configured" is the
+        // NORMAL state of a fresh download rather than a misconfiguration. Send the
+        // reader back to the card that fixes it instead of naming an environment
+        // variable they have no file to set it in.
+        if (!credentials.hasOAuthClient()) return backTo('/settings?google=no_credentials');
         // The verifier and state live server-side for one exchange only; the
         // verifier never travels, which is the point of PKCE.
         const verifier = makeVerifier();
@@ -1667,8 +1778,8 @@ const server = listen((port) => Bun.serve({
         pendingLogin = { verifier, state, at: Date.now() };
         return Response.redirect(
           authUrl({
-            clientId: config.google.clientId,
-            clientSecret: config.google.clientSecret,
+            clientId: credentials.read('clientId'),
+            clientSecret: credentials.read('clientSecret'),
             redirectUri: `http://127.0.0.1:${listeningPort}${config.google.redirectPath}`,
           }, await challengeFor(verifier), state),
           302,
@@ -1783,8 +1894,10 @@ const server = listen((port) => Bun.serve({
       GET: async () => {
         const missing: string[] = [];
         if (!googleAuth.status().connected) missing.push('a connected Google account');
-        if (!config.google.apiKey) missing.push('GOOGLE_API_KEY');
-        if (!config.google.projectNumber) missing.push('GOOGLE_PROJECT_NUMBER');
+        // Named as what the operator pastes, not as environment variables — since 0017
+        // there is no `.env` in a downloaded binary to name.
+        if (!credentials.read('apiKey')) missing.push('a Google API key');
+        if (!credentials.read('projectNumber')) missing.push('the Cloud project number');
         if (missing.length) return Response.json({ ready: false, missing }, { status: 409 });
 
         const token = await googleAuth.accessToken();
@@ -1792,18 +1905,25 @@ const server = listen((port) => Bun.serve({
         return Response.json({
           ready: true,
           token,
-          apiKey: config.google.apiKey,
-          appId: config.google.projectNumber,
-          // The Picker is the ONE thing that runs in a browser against GOOGLE_API_KEY, so
-          // it is the one thing an HTTP-referrer restriction on that key can break. When
-          // the preferred port was taken, `app/launch.ts` accepted whatever the OS handed
-          // out — and Google's referrer restrictions cannot express a port range, so no
-          // allowlist can ever name this one. Say so here rather than let it surface as a
-          // Picker that opens and refuses. Everything else Google-shaped (Drive, the
-          // digest, the mirror) is server-side and unaffected. (0016)
+          apiKey: credentials.read('apiKey'),
+          appId: credentials.read('projectNumber'),
+          // The Picker is the ONE thing that runs in a browser against the API key, so it
+          // is the one thing a restriction on that key can break. Everything else
+          // Google-shaped (Drive, the digest, the mirror) is server-side and unaffected.
+          //
+          // **An HTTP-referrer restriction can never work here**, whatever port this is on:
+          // the Picker's own call presents an EMPTY referrer, not the page's origin, so no
+          // allowlist can name it. That cost a day in 0016 — a referrer probe from the page
+          // origin passed, which was read as clearing the referrer list, and the real
+          // failure was the one referrer the probe dismissed. The guard that does work is
+          // an API restriction: limit the key to Google Picker API and nothing else.
+          //
+          // The port is still worth saying out loud when it moved, because it is the first
+          // thing anyone suspects and ruling it out cheaply is the point.
           portNote: listeningPort !== config.port
-            ? `STEWARD is on port ${listeningPort} because ${config.port} was taken. If the Picker is refused, `
-              + `it is the API key's referrer restriction: add http://localhost:${listeningPort}/* to it, or free port ${config.port} and restart.`
+            ? `STEWARD is on port ${listeningPort} because ${config.port} was taken. That does not affect `
+              + `the Picker: its key check ignores the page's origin. If it is refused, the key's API `
+              + `restrictions are the place to look — it needs Google Picker API.`
             : null,
         }, { headers: { 'Cache-Control': 'no-store' } });
       },
@@ -1980,10 +2100,18 @@ const server = listen((port) => Bun.serve({
         const g = googleAuth.status();
         // Say plainly what is true: not configured, configured but not
         // connected, or connected as someone.
+        // Since 0017 a downloaded STEWARD carries NO Google credentials, so "not
+        // configured" is the ordinary first-run state rather than a mistake. The old copy
+        // here told the reader to set GOOGLE_CLIENT_ID "before starting STEWARD" — an
+        // instruction nobody running a binary can follow, because there is no .env to set
+        // it in. It points at the card below instead.
         const state = !g.configured
-          ? `<p class="muted">No OAuth client id configured. Create a Google Cloud project, enable the ` +
-            `Drive API, and add an OAuth client of type <strong>Desktop app</strong>. Then set ` +
-            `<code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> before starting STEWARD.</p>` +
+          ? `<p>STEWARD has no Google credentials yet, so Drive is switched off. Everything else — ` +
+            `clients, customers, tickets, PDFs and the daily digest — works without it.</p>` +
+            `<p class="muted">If somebody gave you credentials for their project, paste them into ` +
+            `<strong>Google credentials</strong> below. To make your own: create a Google Cloud project, ` +
+            `enable the <strong>Drive API</strong> and <strong>Picker API</strong>, add an OAuth client of ` +
+            `type <strong>Desktop app</strong>, and create a browser <strong>API key</strong>.</p>` +
             `<p class="muted">Desktop clients allow loopback redirects on any port, so there is nothing ` +
             `to register — this build listens on ` +
             `<code>http://127.0.0.1:${config.port}${config.google.redirectPath}</code>.</p>` +
@@ -1994,13 +2122,12 @@ const server = listen((port) => Bun.serve({
               `New documents are stored in the <strong>${esc(config.google.folderName)}</strong> folder of that Drive.</p>` +
               // Linking an existing file is a separate capability with its own
               // prerequisites; say so here rather than at the moment of failure.
-              (config.google.apiKey && config.google.projectNumber
+              (credentials.hasPicker()
                 ? `<p class="muted">Existing Drive files can be linked to a record with ` +
                   `<strong>Link from Drive</strong> in any record's Documents section.</p>`
-                : `<p class="muted">Linking <em>existing</em> Drive files needs the Google Picker: enable the ` +
-                  `Picker API, create a browser <strong>API key</strong>, and set <code>GOOGLE_API_KEY</code> and ` +
-                  `<code>GOOGLE_PROJECT_NUMBER</code> (the Cloud project number). Until then, uploads and ` +
-                  `generated PDFs still file to Drive normally.</p>`) +
+                : `<p class="muted">Linking <em>existing</em> Drive files needs the Google Picker, which wants ` +
+                  `two more values below: an <strong>API key</strong> and the <strong>project number</strong>. ` +
+                  `Until then, uploads and generated PDFs still file to Drive normally.</p>`) +
               `<form method="post" action="/oauth/google/disconnect"><div class="form-controls">` +
               `<button type="submit" class="btn">Disconnect</button></div></form>` +
               `<p class="muted">Disconnecting only forgets the connection here. Files already in Drive stay in Drive, ` +
@@ -2016,6 +2143,65 @@ const server = listen((port) => Bun.serve({
         `<div class="page-head"><h1>Settings</h1></div>` +
         `<section class="panel"><div class="panel__head"><h2>Google Drive</h2></div><div class="panel__body">` +
         noticeHtml + state + `</div></section>` +
+        // --- Google credentials: the four values the binary no longer carries (0017) ---
+        // Rendered whether or not an account is connected, unlike the SMTP card, because
+        // this IS the prerequisite for connecting one — hiding it behind a connection
+        // would hide the only way to make a connection possible.
+        (() => {
+          const have = credentials.all();
+          // A stored secret is never rendered back, so an empty box is the normal state of
+          // an unchanged form and submitting one means "leave it alone" (0013's rule, and
+          // the reason changing the send time never wiped the SMTP password). Say which
+          // ones are set, since the boxes cannot show it.
+          const mark = (f: CredentialField, label: string, hint: string): string =>
+            `<div class="form-row"><label for="cred-${f}">${esc(label)}` +
+            (have[f] ? ` <span class="muted">— set</span>` : '') + `</label>` +
+            `<input type="password" id="cred-${f}" name="${f}" autocomplete="off" spellcheck="false" ` +
+            `placeholder="${have[f] ? 'unchanged' : 'not set'}">` +
+            `<p class="muted">${esc(hint)}</p></div>`;
+          const problem = new URL(req.url).searchParams.get('cred');
+          return `<section class="panel"><div class="panel__head"><h2>Google credentials</h2></div>` +
+            `<div class="panel__body">` +
+            (problem
+              ? `<p class="form-status" data-ok="${problem === 'saved' || problem === 'cleared'}">${esc(problem.replace(/_/g, ' '))}</p>`
+              : '') +
+            `<p class="muted">These identify the Google Cloud project STEWARD talks to. They are stored on ` +
+            `this machine only, never rendered back, and never included in a bug report.</p>` +
+            // The file path first, because it is the one most people should take: Google
+            // hands you a client_secret JSON when you create the client, and retyping
+            // values out of a file you are already holding is how a typo gets in.
+            `<h3 class="section-title">From a file</h3>` +
+            `<p class="muted">Upload the <code>client_secret_….json</code> Google gave you when you created ` +
+            `the OAuth client, or a credentials file somebody exported from their own STEWARD. ` +
+            `The project number is read off the client id, so it is not asked for twice.</p>` +
+            // `fb`, not `attach`: `attach` styles a bare file input and nothing else, so a
+            // textarea inside it renders as an unstyled white box overlapping its own
+            // label. `fb` is the form grid the rest of Settings uses.
+            `<form class="fb" method="post" action="/google/credentials/import" enctype="multipart/form-data">` +
+            `<div class="form-row"><label for="cred-file">Credentials file</label>` +
+            `<input type="file" id="cred-file" name="file" accept="application/json,.json"></div>` +
+            `<div class="form-row"><label for="cred-json">or paste its contents</label>` +
+            `<textarea id="cred-json" name="json" rows="3" spellcheck="false" placeholder="{ … }"></textarea></div>` +
+            `<div class="form-controls"><button type="submit" class="btn">Import</button></div></form>` +
+            `<h3 class="section-title">One at a time</h3>` +
+            `<form class="fb" method="post" action="/google/credentials">` +
+            mark('clientId', 'OAuth client id', 'Ends in .apps.googleusercontent.com. Needed to connect an account.') +
+            mark('clientSecret', 'OAuth client secret', 'Starts with GOCSPX-. Needed to connect an account.') +
+            mark('apiKey', 'API key', 'Starts with AIza. Needed only for Link from Drive.') +
+            mark('projectNumber', 'Project number', 'Digits, not the project id. Needed only for Link from Drive.') +
+            `<div class="form-controls"><button type="submit" class="btn">Save</button>` +
+            `<label class="muted"><input type="checkbox" name="forget" value="1"> Forget all four</label></div>` +
+            `</form>` +
+            `<p class="muted">Changes take effect immediately — no restart.</p>` +
+            (have.clientId || have.apiKey
+              ? `<h3 class="section-title">Give these to someone else</h3>` +
+                `<p class="muted">Downloads a file holding every credential above, for setting up another ` +
+                `machine. It is the whole set in one place — send it directly, and not through anywhere ` +
+                `public.</p>` +
+                `<p><a class="btn" data-variant="soft" href="/google/credentials/export">Export credentials</a></p>`
+              : '') +
+            `</div></section>`;
+        })() +
         // --- Google Sheets: one true statement at a time ---
         // The mirror is destructive in both directions, so the card says so BEFORE the
         // buttons rather than after someone loses an afternoon's typing.

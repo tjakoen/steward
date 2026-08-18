@@ -368,3 +368,54 @@ the screen. The card says what the file contains and that it should not go anywh
   them are looking for this. Consider enabling Secret Scanning on the repository — the push
   rejection noted it is eligible and not enabled — so the check does not depend on the
   secret being newly added in a push.
+
+## `v0.4.0` shipped, and the gate has now been run on the published artefacts
+
+Tag `v0.4.0` on `6646e88` published four assets on 2026-08-08 at 08:59Z. Nothing in `plans/`
+recorded that until now, which is why this section exists: the plan's verified section above
+was written against a binary built locally from this tree, and a local build is not what a
+stranger downloads. The two can differ — `v0.3.0` is the proof, where a green CI run over
+correct code produced a release with Google switched off.
+
+Re-run on 2026-08-18 against the assets themselves, downloaded fresh from the release:
+
+- **All three published binaries verify against the published `SHA256SUMS`** — mac, linux and
+  the Windows exe.
+- **The gate passes on all three.** `AIza…`, `GOCSPX-…`, `…apps.googleusercontent.com` and
+  `308363978170` return zero hits in each of `steward-darwin-arm64`, `steward-linux-x64` and
+  `steward-windows-x64.exe`. The same four patterns against the still-published `v0.3.1`
+  return all four values. That contrast is the plan, measured on the artefacts the plan is
+  about.
+- **The downloader's state, entered properly this time.** The published mac binary run with
+  `STEWARD_DATA` pointed at an empty directory, no `.env` within reach and every `GOOGLE_*`
+  unset from the environment: `/healthz` answers
+  `{"name":"steward","version":"0.4.0","packaged":true}`, `/files/picker-config` answers
+  `{"ready":false,"missing":["a connected Google account","a Google API key","the Cloud project number"]}`,
+  `/oauth/google/start` returns 303 to `/settings?google=no_credentials`, the front page is
+  200, `/components.css` is 138,028 bytes, and the `/intent` door validates rather than
+  throwing.
+- **A binary downloaded with `gh release download` carries no `com.apple.quarantine`**, only
+  `com.apple.provenance`. Gatekeeper is a browser-download problem; the CLI path does not
+  reproduce it, so it cannot be used to test the README's override instructions.
+
+One methodological note worth keeping, because the first attempt at this pass got it wrong.
+Running the packaged binary without setting `STEWARD_DATA` sends it to the shared
+`~/Library/Application Support/STEWARD`, which is the operator's real data directory — and
+there `picker-config` omitted *"a connected Google account"* from `missing`, because a token
+was already sitting in it. The reading was still `ready:false`, so the conclusion would have
+survived; the state was simply not a downloader's, and a check that is only accidentally right
+is not a check. **`STEWARD_DATA` is part of the procedure, not an optimisation.**
+
+### What this does not close
+
+`verify` stays `doing`, and the reason is unchanged: its last bullet requires the old key and
+old client to be **deleted** in Cloud Console, with a `v0.3.1` binary then failing to connect
+as the proof. That is `rotate`, and `rotate` is the operator's.
+
+**The exposure is still open, and it is now ten days old.** `v0.3.0` and `v0.3.1` remain
+published and downloadable; their binaries still carry all four values; project
+`308363978170` still has billing attached. Shipping `v0.4.0` did not narrow this by one inch —
+a new release does not un-publish an old one, which the plan said in advance and is worth
+seeing confirmed. Download counts on the two old releases are in the low single digits and are
+most likely the operator's own verification passes, but the count is not the risk; the
+availability is.

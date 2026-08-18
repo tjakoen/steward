@@ -389,6 +389,48 @@ stop working somewhere around 8 KB.
 by collaborators.~~ **Moot as of 2026-08-04 — the repo is public and issues are enabled**, so
 anyone with a GitHub account can file one. The friend on Windows needs no collaborator invite.
 
+## `v0.4.0` is out, and the credential exposure is the only thing still open — 2026-08-18
+
+`0017`'s code half is finished and shipped. Tag `v0.4.0` on `6646e88` published four assets on
+2026-08-08, `share-file` landed alongside the original five tasks, and the suite is 397 tests
+with `tsc` clean. **Six of nine tasks are done**: `credential-source`, `settings-card`,
+`google-copy`, `unbake`, `readme-byo`, `share-file`.
+
+The gate has now been run on the **published artefacts** rather than a local build, which is a
+distinction `v0.3.0` taught this project the hard way. All three published binaries verify
+against `SHA256SUMS`, and `strings` over each of mac, linux and the Windows exe returns zero
+hits for the API key, the client secret, the OAuth client id and the project number. The same
+four patterns against the still-published `v0.3.1` return all four. The published mac binary,
+run with `STEWARD_DATA` pointed at an empty directory and no `GOOGLE_*` anywhere, boots as
+`0.4.0`, names the three missing Google values as things to paste, redirects
+`/oauth/google/start` to `/settings?google=no_credentials`, and serves `/components.css` at the
+recorded 138,028 bytes. Details in `plans/0017-operator-held-credentials.md` § "`v0.4.0`
+shipped".
+
+**Everything that is left in this project needs a human, and one item needs one soon.**
+
+- **`rotate` — `0017`, and the reason `verify` cannot close.** `v0.3.0` and `v0.3.1` are still
+  published, still downloadable, and still carry all four values; project `308363978170` still
+  has billing attached. `v0.4.0` did not narrow this, because a release does not un-publish its
+  predecessors. The old key and the old OAuth client have to be **deleted** in Cloud Console,
+  not replaced — and a `v0.3.1` binary failing to connect afterwards is the proof, the one time
+  in this project a broken Picker is a pass.
+- **`quota-caps` — `0017`.** A budget alert and quota ceilings on the Drive and Picker APIs.
+  This was written down as the thing to do first, before the plan was even scheduled, precisely
+  because it is the only guard that holds while `rotate` is outstanding. It is still the only
+  guard, and it is still not in place.
+- **`restrict` — `0017`.** The new key is restricted to the **Google Picker API only**.
+  Application restrictions stay off; the referrer list is not an option, because the Picker
+  sends an empty referrer.
+- **`windows-check` — `0016`, the last task in that plan.** Nobody has ever run the exe. It can
+  be had from any of the three releases or from run `31159428657`'s artifact.
+- **`0011`'s Sheets warning dialog.** That typing into a grey mirror column raises Sheets' own
+  warning. The protected ranges are confirmed correct; the dialog cannot be triggered
+  headlessly.
+
+Nothing here is code. There is no task left in this repository that a session can pick up and
+finish on its own.
+
 ## Design notes already banked for `0011`
 
 From the design discussion before the human redirected — carry these in, they survive either

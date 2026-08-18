@@ -8,7 +8,7 @@ import { logFile } from './app/log.ts';
 
 import { mkdir } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 // BATCH
 import { bunRuntime } from '@tjakoen/batch/platform/bun-runtime.ts';
@@ -62,7 +62,7 @@ import type {
 import { LocalDocumentStore, mimeFor } from './app/docs/store.ts';
 import { renderTicketDocument } from './app/view/pdf.ts';
 import { documentPrintOptions } from './app/view/doc.ts';
-import { printToPdf, closeBrowser } from './app/pdf/print.ts';
+import { printToPdf, closeBrowser, resolveChrome } from './app/pdf/print.ts';
 import { validateLogo, DISPLAY_SIZE, MAX_BYTES as LOGO_MAX_BYTES } from './app/docs/logo.ts';
 import {
   DEFAULT_PORT as SMTP_PORT, KEYS as DIGEST_KEYS, normalisePassword, parseTime,
@@ -1117,8 +1117,10 @@ const crumbRoutes = hasDir(config.toursDir) ? createCrumbRoutes({ toursDir: conf
 if (config.packaged) {
   const existing = await probeExisting(config.port);
   if (existing) {
-    console.log(`STEWARD ${existing.version} is already running → http://localhost:${config.port}`);
-    openBrowser(`http://localhost:${config.port}`);
+    // `127.0.0.1` for the same reason as the startup URL below: `localhost` is an IPv6
+    // lookup on Windows and this server is IPv4-only.
+    console.log(`STEWARD ${existing.version} is already running → http://127.0.0.1:${config.port}`);
+    openBrowser(`http://127.0.0.1:${config.port}`);
     process.exit(0);
   }
 }
@@ -2583,13 +2585,34 @@ const server = listen((port) => Bun.serve({
 // The OAuth redirect must point at the port we actually bound, not the one asked for.
 listeningPort = server.port ?? config.port;
 
-const url = `http://localhost:${server.port}`;
+// `127.0.0.1`, never `localhost`. Windows resolves `localhost` to IPv6 `::1` first, and
+// `Bun.serve` binds IPv4 only, so the browser's first connection goes nowhere. Normally
+// it falls back instantly; when something drops those packets rather than refusing them
+// — Defender, a VPN adapter — the tab hangs forever instead, which is what running the
+// exe on a real Windows machine turned up. Measured there: `127.0.0.1/healthz` answered
+// instantly in one tab while `localhost` hung in another.
+//
+// It also collapses an origin split that existed everywhere: the OAuth callback has
+// always returned to `127.0.0.1` (Google requires a literal loopback address), so an app
+// served from `localhost` sent the operator to a DIFFERENT ORIGIN to connect Drive. One
+// address for everything, and no name resolution in the path at all.
+const url = `http://127.0.0.1:${server.port}`;
 console.log(`STEWARD ${config.version} → ${url}`);
 console.log(`  data: ${dataDir()}`);
 
 // A double-click has no terminal to read the URL out of. `--no-open` is for a packaged
 // run being driven by something other than a person (a smoke test, a service wrapper).
-if (config.packaged && !process.argv.includes('--no-open')) openBrowser(url);
+//
+// Opened as its OWN WINDOW where a Chrome or Edge binary exists — `--app=`, no tabs, no
+// address bar — because "it still opens a browser" was the first thing a real operator
+// said about the packaged exe. The binary is the one `resolveChrome` already finds for
+// PDFs, so this adds no dependency and nothing to install; without one it falls back to
+// the default browser exactly as before. The profile lives beside the database so the
+// window never joins the operator's ordinary Chrome session, which would hand the URL to
+// a running instance and open nothing at all.
+if (config.packaged && !process.argv.includes('--no-open')) {
+  openBrowser(url, process.platform, resolveChrome(), join(dataDir(), 'window'));
+}
 
 if (config.packaged) {
   // The previous binary, parked by an update. This is the first moment it is safe to

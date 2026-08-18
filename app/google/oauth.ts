@@ -90,11 +90,30 @@ interface TokenResponse {
 
 type Fetcher = typeof fetch;
 
+/**
+ * How long any call to Google may take before it is abandoned.
+ *
+ * Every fetch in this file is awaited by something that renders a page — `ensureAccount`
+ * runs on GET /settings — and none of them had a deadline. An unreachable or slow Google
+ * therefore hung the request forever: no error, no fallback, a tab spinning until the
+ * operator gave up. Found while a real Windows machine was struggling for an unrelated
+ * reason, which is exactly when an unbounded wait turns a small problem into a dead app.
+ *
+ * Ten seconds is far longer than a healthy token refresh and far shorter than a person's
+ * patience. Failing is fine here: `accessToken` already returns null on error and every
+ * caller falls back to the local path.
+ */
+const GOOGLE_TIMEOUT_MS = 10_000;
+
+/** `AbortSignal.timeout`, as a fresh signal per call — a signal cannot be reused. */
+const deadline = (): AbortSignal => AbortSignal.timeout(GOOGLE_TIMEOUT_MS);
+
 async function postToken(body: URLSearchParams, fetchImpl: Fetcher): Promise<TokenResponse> {
   const res = await fetchImpl(TOKEN_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: deadline(),
   });
   const json = (await res.json()) as TokenResponse;
   if (!res.ok || json.error) {
@@ -122,6 +141,7 @@ export function makeGoogleAuth(
     try {
       const res = await fetchImpl(DRIVE_ABOUT_ENDPOINT, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: deadline(),
       });
       const about = (await res.json()) as { user?: { emailAddress?: string; displayName?: string } };
       const who = about.user?.emailAddress ?? about.user?.displayName;
@@ -185,12 +205,23 @@ export function makeGoogleAuth(
       // 60s of slack so a token can't expire mid-request.
       if (cached && expires > now() + 60_000) return cached;
 
-      const token = await postToken(new URLSearchParams({
-        client_id: cfg.clientId,
-        client_secret: cfg.clientSecret,
-        grant_type: 'refresh_token',
-        refresh_token: refresh,
-      }), fetchImpl);
+      // The doc comment above is a contract — "callers fall back rather than throw" — and
+      // `postToken` throws on a bad response and, since the deadline was added, on a slow
+      // network too. Without this catch a refresh that cannot reach Google turns GET
+      // /settings into a 500. Returning null instead is what every caller already handles:
+      // documents fall back to the local store and the surface says "not connected".
+      let token: TokenResponse;
+      try {
+        token = await postToken(new URLSearchParams({
+          client_id: cfg.clientId,
+          client_secret: cfg.clientSecret,
+          grant_type: 'refresh_token',
+          refresh_token: refresh,
+        }), fetchImpl);
+      } catch (e) {
+        console.warn(`[google] token refresh failed: ${String(e)}`);
+        return null;
+      }
 
       if (!token.access_token) return null;
       settings.set(KEY.access, token.access_token);

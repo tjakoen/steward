@@ -184,3 +184,28 @@ test('ensureAccount backfills a connection made before we asked, then stops aski
   await auth.ensureAccount(); // already known — must not call again
   expect(aboutCalls).toBe(1);
 });
+
+// --- 0018: an unreachable Google must not take a page down with it ---
+
+test('a refresh that cannot reach Google returns null instead of throwing', async () => {
+  // The contract in the doc comment — "callers fall back rather than throw" — was not
+  // true of the refresh path, and adding a deadline to these fetches made it reachable:
+  // GET /settings awaits ensureAccount, so a network failure became a 500 on a page whose
+  // whole job is to tell the operator what is wrong.
+  const auth = makeGoogleAuth(
+    memorySettings({ 'google.refresh_token': 'rt' }),
+    cfg,
+    (() => Promise.reject(new Error('The operation timed out.'))) as unknown as typeof fetch,
+  );
+  expect(await auth.accessToken()).toBeNull();
+});
+
+test('and ensureAccount stays quiet about it', async () => {
+  const auth = makeGoogleAuth(
+    memorySettings({ 'google.refresh_token': 'rt' }),
+    cfg,
+    (() => Promise.reject(new Error('offline'))) as unknown as typeof fetch,
+  );
+  await auth.ensureAccount(); // must not reject
+  expect(auth.status().connected).toBe(true);
+});

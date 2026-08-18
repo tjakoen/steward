@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { browserCommand, isPortInUse, isSteward, listen, probeExisting } from './launch.ts';
+import { appWindowCommand, browserCommand, isPortInUse, isSteward, listen, probeExisting } from './launch.ts';
 
 test('the Windows browser command carries the empty title argument', () => {
   // `start` reads a quoted first argument as the WINDOW TITLE. Drop the `''` and
@@ -69,4 +69,21 @@ test('probing a dead port is a null, not a throw', async () => {
   const port = server.port!;
   server.stop(true);
   expect(await probeExisting(port, 200)).toBeNull();
+});
+
+// --- 0018: its own window, and a loopback address that resolves nowhere ---
+
+test('an app window is chromeless and profile-isolated', () => {
+  const cmd = appWindowCommand('/path/to/msedge', 'http://127.0.0.1:3000', '/data/window');
+  expect(cmd[0]).toBe('/path/to/msedge');
+  expect(cmd).toContain('--app=http://127.0.0.1:3000');
+  // Without its own profile Chrome hands the URL to a running instance and exits, and no
+  // app window ever appears. This is the assertion that catches that regression.
+  expect(cmd).toContain('--user-data-dir=/data/window');
+});
+
+test('with no Chrome found it still opens something', () => {
+  expect(browserCommand('win32', 'http://127.0.0.1:3000')).toEqual(
+    ['cmd', '/c', 'start', '', 'http://127.0.0.1:3000'],
+  );
 });

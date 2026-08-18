@@ -36,12 +36,43 @@ export function browserCommand(platform: NodeJS.Platform, url: string): string[]
   return ['xdg-open', url];
 }
 
-/** Open a browser, never throwing: no browser is a worse UX, not a failed startup. */
-export function openBrowser(url: string, platform: NodeJS.Platform = process.platform): void {
+/**
+ * The command that opens a URL as its OWN WINDOW, given a Chrome or Edge binary.
+ *
+ * `--app=` is Chrome's chromeless mode: no tabs, no address bar, its own taskbar entry.
+ * It is the difference between "a website I have to keep a tab for" and "the program I
+ * opened", and the operator asked for the second. It needs no new dependency, because
+ * `resolveChrome` already finds a binary for PDF rendering — and Edge ships with Windows,
+ * so the machine that raised this already satisfies it.
+ *
+ * `--user-data-dir` keeps that window out of the operator's ordinary Chrome profile.
+ * Without it, Chrome hands the URL to an already-running instance and exits, and the app
+ * window never appears — the single most common way `--app` silently does nothing.
+ */
+export function appWindowCommand(bin: string, url: string, profileDir: string): string[] {
+  return [bin, `--app=${url}`, `--user-data-dir=${profileDir}`, '--no-first-run', '--no-default-browser-check'];
+}
+
+/**
+ * Open the app, never throwing: no window is a worse UX, not a failed startup.
+ *
+ * Prefers its own window and falls back to the default browser, because a machine with
+ * neither Chrome nor Edge is a machine that cannot render PDFs either, and STEWARD is
+ * deliberately still usable there.
+ */
+export function openBrowser(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+  chrome: string | null = null,
+  profileDir?: string,
+): void {
+  const command = chrome && profileDir
+    ? appWindowCommand(chrome, url, profileDir)
+    : browserCommand(platform, url);
   try {
-    Bun.spawn(browserCommand(platform, url), { stdout: 'ignore', stderr: 'ignore' });
+    Bun.spawn(command, { stdout: 'ignore', stderr: 'ignore' });
   } catch (e) {
-    console.warn(`[launch] could not open a browser (${String(e)}); go to ${url}`);
+    console.warn(`[launch] could not open a window (${String(e)}); go to ${url}`);
   }
 }
 

@@ -1,0 +1,8 @@
+{
+  "projectName": "steward",
+  "plansDir": "./plans",
+  "docsDirs": [
+    "./content"
+  ],
+  "previewTarget": "http://localhost:3000"
+}

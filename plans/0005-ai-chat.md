@@ -2,7 +2,7 @@
 id: 0005-ai-chat
 title: STEWARD — Server-side AI chat (local Ollama over the /intent door)
 status: done
-owner: admin
+owner: ai
 created: 2026-07-31
 milestone: M2 (AI-native cockpit)
 tags: [ai, ollama, chat, sse, intent]

@@ -2,7 +2,7 @@
 id: 0007-grain-upstream
 title: STEWARD — push the shell, the data table and the drawer up into GRAIN
 status: done
-owner: admin
+owner: ai
 created: 2026-07-31
 milestone: M2 (AI-native cockpit)
 tags: [grain, design-system, upstream, css, release]

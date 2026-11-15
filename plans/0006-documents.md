@@ -2,7 +2,7 @@
 id: 0006-documents
 title: STEWARD — Documents, attachments and the file manager (Drive-backed)
 status: done
-owner: admin
+owner: ai
 created: 2026-07-31
 milestone: M2 (AI-native cockpit)
 tags: [documents, drive, oauth, files, preview]

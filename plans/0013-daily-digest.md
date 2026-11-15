@@ -2,7 +2,7 @@
 id: 0013-daily-digest
 title: STEWARD — a daily digest of pending tickets, and the branded document it carries
 status: done
-owner: admin
+owner: ai
 created: 2026-08-03
 milestone: M3 (ship it)
 tags: [email, smtp, scheduler, pdf, branding, mockup, reporting]

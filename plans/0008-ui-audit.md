@@ -2,7 +2,7 @@
 id: 0008-ui-audit
 title: STEWARD — UI audit; close the GRAIN class collisions before the upstream ships
 status: done
-owner: admin
+owner: ai
 created: 2026-08-01
 milestone: M2 (AI-native cockpit)
 tags: [ui, css, collisions, accessibility, density, audit]

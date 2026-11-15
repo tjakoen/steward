@@ -2,7 +2,7 @@
 id: 0011-sheet-driven-writes
 title: STEWARD — the sheet writes back, and the six ways that destroys the database
 status: done
-owner: admin
+owner: ai
 created: 2026-08-04
 milestone: M3 (ship it)
 tags: [sheets, google, pull, sync, data-integrity, audit, conflict, destructive]

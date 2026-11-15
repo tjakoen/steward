@@ -1,8 +1,8 @@
 ---
-id: backlog
+id: BACKLOG
 title: STEWARD — what the human asked for after 0010, and what it actually costs
-status: intake
-owner: admin
+status: todo
+owner: human
 created: 2026-08-03
 ---
 

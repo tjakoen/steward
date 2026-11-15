@@ -2,7 +2,7 @@
 id: 0014-tabs-and-filtering
 title: STEWARD — tabs in the panel, and a filter that is more than a box that hides rows
 status: done
-owner: admin
+owner: ai
 created: 2026-08-04
 milestone: M3 (ship it)
 tags: [tabs, filtering, facets, grain, accessibility, drawer, sse]

@@ -2,7 +2,7 @@
 id: 0012-archive-restore
 title: STEWARD — archive instead of delete, restore afterwards, and a Drive folder that agrees
 status: done
-owner: admin
+owner: ai
 created: 2026-08-04
 milestone: M3 (ship it)
 tags: [archive, soft-delete, migration, drive, audit, mirror]

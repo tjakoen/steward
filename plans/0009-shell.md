@@ -2,7 +2,7 @@
 id: 0009-shell
 title: STEWARD — one Windows binary, updating itself from GitHub Releases
 status: done
-owner: admin
+owner: ai
 created: 2026-08-01
 milestone: M3 (ship it)
 tags: [packaging, bun-compile, windows, auto-update, release, sse, manifest]

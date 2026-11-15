@@ -2,7 +2,7 @@
 id: 0003-tickets
 title: STEWARD — Tickets (CRUD + kanban board)
 status: done
-owner: admin
+owner: ai
 created: 2026-07-31
 milestone: M1 (usable admin tool)
 tags: [tickets, kanban, grain, intent, sse]

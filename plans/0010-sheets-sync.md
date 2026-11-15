@@ -2,7 +2,7 @@
 id: 0010-sheets-sync
 title: STEWARD — a Google Sheets mirror, and the two things 0009 left behind
 status: done
-owner: admin
+owner: ai
 created: 2026-08-01
 milestone: M3 (ship it)
 tags: [sheets, google, export, reporting, batch-upstream, windows, packaging]

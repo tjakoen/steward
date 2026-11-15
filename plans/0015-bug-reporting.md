@@ -2,7 +2,7 @@
 id: 0015-bug-reporting
 title: STEWARD — reporting a bug, and the diagnostics that make a report worth reading
 status: done
-owner: admin
+owner: ai
 created: 2026-08-04
 milestone: M3 (ship it)
 tags: [github, diagnostics, logging, privacy, redaction, support]

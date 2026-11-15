@@ -2,7 +2,7 @@
 id: 0001-foundation
 title: STEWARD — Foundation
 status: done
-owner: admin
+owner: ai
 created: 2026-07-31
 milestone: M1 (usable admin tool)
 tags: [foundation, batch, grain, sqlite, demo, hygiene]

@@ -2,7 +2,7 @@
 id: 0017-operator-held-credentials
 title: STEWARD — the binary carries no credentials at all, and the operator pastes them
 status: doing
-owner: admin
+owner: ai
 created: 2026-08-08
 milestone: M4 (open source)
 tags: [security, credentials, settings, picker, google, release, open-source]

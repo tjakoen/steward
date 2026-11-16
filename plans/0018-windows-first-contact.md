@@ -1,7 +1,7 @@
 ---
 id: 0018-windows-first-contact
 title: STEWARD — what a real Windows machine said the first time anyone ran it
-status: doing
+status: todo
 owner: ai
 created: 2026-08-18
 milestone: M4 (open source)

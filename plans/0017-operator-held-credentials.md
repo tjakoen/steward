@@ -1,7 +1,7 @@
 ---
 id: 0017-operator-held-credentials
 title: STEWARD — the binary carries no credentials at all, and the operator pastes them
-status: doing
+status: todo
 owner: ai
 created: 2026-08-08
 milestone: M4 (open source)

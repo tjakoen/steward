@@ -1,7 +1,7 @@
 ---
 id: 0016-release
 title: STEWARD — the first release anyone can actually download and run
-status: doing
+status: todo
 owner: ai
 created: 2026-08-04
 milestone: M3 (ship it)

@@ -4,5 +4,6 @@
   "docsDirs": [
     "./content"
   ],
-  "previewTarget": "http://localhost:3000"
+  "previewTarget": "http://localhost:3000",
+  "ownerLayer": true
 }
